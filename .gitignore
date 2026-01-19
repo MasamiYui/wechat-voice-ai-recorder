@@ -1,0 +1,15 @@
+# Swift
+.build/
+.swiftpm/
+Packages.resolved
+
+# macOS
+.DS_Store
+*.app/
+
+# IDEs
+.idea/
+.vscode/
+
+# Trae
+.trae/

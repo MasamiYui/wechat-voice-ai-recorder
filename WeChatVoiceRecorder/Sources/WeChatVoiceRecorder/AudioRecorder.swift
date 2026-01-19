@@ -4,17 +4,27 @@ import AVFoundation
 import AppKit
 
 @available(macOS 13.0, *)
-class AudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegate {
+class AudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     @Published var isRecording = false
     @Published var statusMessage = "Ready to record"
     @Published var availableApps: [SCRunningApplication] = []
     @Published var selectedApp: SCRunningApplication?
     
+    // System Audio (Remote)
     private var stream: SCStream?
-    private var assetWriter: AVAssetWriter?
-    private var assetWriterInput: AVAssetWriterInput?
-    private let audioQueue = DispatchQueue(label: "com.wechatvoicerecorder.audio")
-    private var isFirstBuffer = true
+    private var remoteAssetWriter: AVAssetWriter?
+    private var remoteAssetWriterInput: AVAssetWriterInput?
+    private let remoteQueue = DispatchQueue(label: "com.wechatvoicerecorder.remote")
+    private var isFirstRemoteBuffer = true
+    private var remoteURL: URL?
+    
+    // Microphone Audio (Local)
+    private var micSession: AVCaptureSession?
+    private var micAssetWriter: AVAssetWriter?
+    private var micAssetWriterInput: AVAssetWriterInput?
+    private let micQueue = DispatchQueue(label: "com.wechatvoicerecorder.mic")
+    private var isFirstMicBuffer = true
+    private var localURL: URL?
     
     override init() {
         super.init()
@@ -44,131 +54,260 @@ class AudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegat
             return
         }
         
-        statusMessage = "Starting capture for \(app.applicationName)..."
-        isFirstBuffer = true
+        statusMessage = "Requesting permissions..."
         
-        Task {
-            do {
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                guard let matchedApp = content.applications.first(where: { $0.processID == app.processID }) else {
-                    await MainActor.run { statusMessage = "App not found running" }
-                    return
-                }
-                
-                let filter = SCContentFilter(display: content.displays.first!, including: [matchedApp], exceptingWindows: [])
-                let config = SCStreamConfiguration()
-                
-                config.capturesAudio = true
-                config.sampleRate = 48000
-                config.channelCount = 2
-                config.excludesCurrentProcessAudio = true
-                
-                // ScreenCaptureKit in macOS 13 uses width/height to determine if video is captured.
-                // For audio-only, we can set them to 0 or small values, but the key is capturesAudio.
-                config.width = 2
-                config.height = 2
-                
-                stream = SCStream(filter: filter, configuration: config, delegate: self)
-                try stream?.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
-                try await stream?.startCapture()
-                
-                await MainActor.run {
-                    self.isRecording = true
-                    self.statusMessage = "Recording \(app.applicationName)..."
-                }
-                
-            } catch {
-                await MainActor.run {
-                    self.statusMessage = "Error starting capture: \(error.localizedDescription)"
+        // Request Mic Permission first
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            self.beginRecordingSession(app: app)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                if granted {
+                    DispatchQueue.main.async { self.beginRecordingSession(app: app) }
+                } else {
+                    DispatchQueue.main.async { self.statusMessage = "Microphone permission denied" }
                 }
             }
-        }
-    }
-    
-    func stopRecording() {
-        Task {
-            do {
-                try await stream?.stopCapture()
-                stream = nil
-                
-                if let writer = assetWriter, writer.status == .writing {
-                    assetWriterInput?.markAsFinished()
-                    await writer.finishWriting()
-                }
-                assetWriter = nil
-                assetWriterInput = nil
-                
-                await MainActor.run {
-                    self.isRecording = false
-                    self.statusMessage = "Recording saved to Downloads/WeChatRecordings"
-                }
-            } catch {
-                await MainActor.run {
-                    self.statusMessage = "Error stopping: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-    
-    private func setupAssetWriter(for sampleBuffer: CMSampleBuffer) {
-        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let streamBasicDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
+        case .denied, .restricted:
+            statusMessage = "Microphone permission denied"
+            return
+        @unknown default:
             return
         }
+    }
+    
+    private func beginRecordingSession(app: SCRunningApplication) {
+        isFirstRemoteBuffer = true
+        isFirstMicBuffer = true
+        
+        // Generate URLs
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let dateStr = formatter.string(from: Date())
         
         let fileManager = FileManager.default
         let downloads = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first!
         let folder = downloads.appendingPathComponent("WeChatRecordings")
         try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
         
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let url = folder.appendingPathComponent("recording-\(formatter.string(from: Date())).m4a")
+        self.remoteURL = folder.appendingPathComponent("recording-\(dateStr)-remote.m4a")
+        self.localURL = folder.appendingPathComponent("recording-\(dateStr)-local.m4a")
         
-        do {
-            assetWriter = try AVAssetWriter(outputURL: url, fileType: .m4a)
-            
-            let settings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: streamBasicDescription.pointee.mSampleRate,
-                AVNumberOfChannelsKey: streamBasicDescription.pointee.mChannelsPerFrame,
-                AVEncoderBitRateKey: 128000
-            ]
-            
-            assetWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
-            assetWriterInput?.expectsMediaDataInRealTime = true
-            
-            if let writer = assetWriter, let input = assetWriterInput, writer.canAdd(input) {
-                writer.add(input)
-                writer.startWriting()
-            }
-        } catch {
-            print("AssetWriter setup failed: \(error)")
+        // Start System Audio Capture (SCK)
+        startSystemAudioCapture(app: app)
+        
+        // Start Microphone Capture (AVCapture)
+        startMicrophoneCapture()
+        
+        DispatchQueue.main.async {
+            self.isRecording = true
+            self.statusMessage = "Recording (Remote + Local)..."
         }
     }
     
-    // MARK: - SCStreamOutput
+    // MARK: - System Audio (SCK)
     
+    private func startSystemAudioCapture(app: SCRunningApplication) {
+        Task {
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                guard let matchedApp = content.applications.first(where: { $0.processID == app.processID }) else { return }
+                
+                let filter = SCContentFilter(display: content.displays.first!, including: [matchedApp], exceptingWindows: [])
+                let config = SCStreamConfiguration()
+                config.capturesAudio = true
+                config.sampleRate = 48000
+                config.channelCount = 2
+                config.excludesCurrentProcessAudio = true
+                config.width = 2
+                config.height = 2
+                
+                stream = SCStream(filter: filter, configuration: config, delegate: self)
+                try stream?.addStreamOutput(self, type: .audio, sampleHandlerQueue: remoteQueue)
+                try await stream?.startCapture()
+            } catch {
+                print("SCK Start Error: \(error)")
+            }
+        }
+    }
+    
+    private func setupRemoteWriter(for sampleBuffer: CMSampleBuffer) {
+        guard let url = remoteURL,
+              let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let streamDesc = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else { return }
+        
+        do {
+            remoteAssetWriter = try AVAssetWriter(outputURL: url, fileType: .m4a)
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: streamDesc.pointee.mSampleRate,
+                AVNumberOfChannelsKey: streamDesc.pointee.mChannelsPerFrame,
+                AVEncoderBitRateKey: 128000
+            ]
+            remoteAssetWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+            remoteAssetWriterInput?.expectsMediaDataInRealTime = true
+            
+            if let writer = remoteAssetWriter, let input = remoteAssetWriterInput, writer.canAdd(input) {
+                writer.add(input)
+                writer.startWriting()
+                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+            }
+        } catch {
+            print("Remote Writer Error: \(error)")
+        }
+    }
+    
+    // MARK: - Microphone Audio (AVCapture)
+    
+    private func startMicrophoneCapture() {
+        micQueue.async {
+            self.micSession = AVCaptureSession()
+            guard let session = self.micSession else { return }
+            
+            session.beginConfiguration()
+            guard let micDevice = AVCaptureDevice.default(for: .audio),
+                  let micInput = try? AVCaptureDeviceInput(device: micDevice),
+                  session.canAddInput(micInput) else {
+                print("Cannot add mic input")
+                return
+            }
+            session.addInput(micInput)
+            
+            let output = AVCaptureAudioDataOutput()
+            if session.canAddOutput(output) {
+                session.addOutput(output)
+                output.setSampleBufferDelegate(self, queue: self.micQueue)
+            }
+            session.commitConfiguration()
+            session.startRunning()
+        }
+    }
+    
+    private func setupMicWriter(for sampleBuffer: CMSampleBuffer) {
+        guard let url = localURL,
+              let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let streamDesc = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else { return }
+        
+        do {
+            micAssetWriter = try AVAssetWriter(outputURL: url, fileType: .m4a)
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: streamDesc.pointee.mSampleRate,
+                AVNumberOfChannelsKey: streamDesc.pointee.mChannelsPerFrame,
+                AVEncoderBitRateKey: 128000
+            ]
+            micAssetWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+            micAssetWriterInput?.expectsMediaDataInRealTime = true
+            
+            if let writer = micAssetWriter, let input = micAssetWriterInput, writer.canAdd(input) {
+                writer.add(input)
+                writer.startWriting()
+                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+            }
+        } catch {
+            print("Mic Writer Error: \(error)")
+        }
+    }
+    
+    // MARK: - Stop & Merge
+    
+    func stopRecording() {
+        Task {
+            // 1. Stop System Audio
+            try? await stream?.stopCapture()
+            stream = nil
+            if let writer = remoteAssetWriter, writer.status == .writing {
+                remoteAssetWriterInput?.markAsFinished()
+                await writer.finishWriting()
+            }
+            
+            // 2. Stop Microphone
+            micSession?.stopRunning()
+            micSession = nil
+            if let writer = micAssetWriter, writer.status == .writing {
+                micAssetWriterInput?.markAsFinished()
+                await writer.finishWriting()
+            }
+            
+            // 3. Merge
+            if let rURL = remoteURL, let lURL = localURL {
+                await MainActor.run { self.statusMessage = "Merging audio files..." }
+                let mixedURL = rURL.deletingLastPathComponent().appendingPathComponent(rURL.lastPathComponent.replacingOccurrences(of: "remote", with: "mixed"))
+                do {
+                    try await mergeAudioFiles(audio1: rURL, audio2: lURL, output: mixedURL)
+                    await MainActor.run {
+                        self.isRecording = false
+                        self.statusMessage = "Saved 3 files to Downloads/WeChatRecordings"
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.isRecording = false
+                        self.statusMessage = "Merge failed: \(error.localizedDescription)"
+                    }
+                }
+            }
+            
+            // Cleanup
+            remoteAssetWriter = nil
+            remoteAssetWriterInput = nil
+            micAssetWriter = nil
+            micAssetWriterInput = nil
+        }
+    }
+    
+    private func mergeAudioFiles(audio1: URL, audio2: URL, output: URL) async throws {
+        let composition = AVMutableComposition()
+        
+        let asset1 = AVURLAsset(url: audio1)
+        let asset2 = AVURLAsset(url: audio2)
+        
+        let track1 = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        let track2 = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        
+        if let sourceTrack1 = try await asset1.loadTracks(withMediaType: .audio).first,
+           let sourceTrack2 = try await asset2.loadTracks(withMediaType: .audio).first {
+            let range1 = CMTimeRange(start: .zero, duration: try await asset1.load(.duration))
+            let range2 = CMTimeRange(start: .zero, duration: try await asset2.load(.duration))
+            
+            try track1?.insertTimeRange(range1, of: sourceTrack1, at: .zero)
+            try track2?.insertTimeRange(range2, of: sourceTrack2, at: .zero)
+        }
+        
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else { return }
+        export.outputURL = output
+        export.outputFileType = .m4a
+        await export.export()
+    }
+    
+    // MARK: - Delegates
+    
+    // SCStreamDelegate
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, CMSampleBufferDataIsReady(sampleBuffer) else { return }
         
-        if isFirstBuffer {
-            setupAssetWriter(for: sampleBuffer)
-            assetWriter?.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-            isFirstBuffer = false
+        if isFirstRemoteBuffer {
+            setupRemoteWriter(for: sampleBuffer)
+            isFirstRemoteBuffer = false
         }
-        
-        if let input = assetWriterInput, input.isReadyForMoreMediaData {
+        if let input = remoteAssetWriterInput, input.isReadyForMoreMediaData {
             input.append(sampleBuffer)
         }
     }
     
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        Task {
-            await MainActor.run {
-                self.isRecording = false
-                self.statusMessage = "Stream stopped: \(error.localizedDescription)"
-            }
+        print("SCStream error: \(error)")
+    }
+    
+    // AVCaptureAudioDataOutputSampleBufferDelegate
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        
+        if isFirstMicBuffer {
+            setupMicWriter(for: sampleBuffer)
+            isFirstMicBuffer = false
+        }
+        if let input = micAssetWriterInput, input.isReadyForMoreMediaData {
+            input.append(sampleBuffer)
         }
     }
 }
