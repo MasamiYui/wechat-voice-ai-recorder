@@ -6,6 +6,8 @@ struct HistoryView: View {
     @Binding var isRecordingMode: Bool
     
     @State private var searchText = ""
+    @State private var pendingDeleteTask: MeetingTask?
+    @State private var isShowingDeleteAlert = false
     
     var filteredTasks: [MeetingTask] {
         if searchText.isEmpty {
@@ -47,6 +49,14 @@ struct HistoryView: View {
                         }
                         .padding(.vertical, 4)
                     }
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            pendingDeleteTask = task
+                            isShowingDeleteAlert = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
                 .onDelete(perform: deleteItems)
             }
@@ -60,11 +70,38 @@ struct HistoryView: View {
             }) {
                 Image(systemName: "arrow.clockwise")
             }
+            if let selectedTask {
+                Button(role: .destructive) {
+                    pendingDeleteTask = selectedTask
+                    isShowingDeleteAlert = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+            }
+        }
+        .alert("Delete Meeting?", isPresented: $isShowingDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                if let task = pendingDeleteTask {
+                    store.deleteTask(task)
+                    if selectedTask?.id == task.id {
+                        selectedTask = nil
+                    }
+                }
+                pendingDeleteTask = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteTask = nil
+            }
+        } message: {
+            Text("This action cannot be undone.")
         }
     }
     
     private func deleteItems(offsets: IndexSet) {
-        store.deleteTask(at: offsets)
+        let tasksToDelete = offsets.compactMap { index in
+            filteredTasks.indices.contains(index) ? filteredTasks[index] : nil
+        }
+        store.deleteTasks(tasksToDelete)
         if let selected = selectedTask, !store.tasks.contains(where: { $0.id == selected.id }) {
             selectedTask = nil
         }
