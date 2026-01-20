@@ -31,4 +31,9 @@ class HistoryStore: ObservableObject {
         }
         refresh()
     }
+
+    func updateTitle(for task: MeetingTask, newTitle: String) {
+        DatabaseManager.shared.updateTaskTitle(id: task.id, newTitle: newTitle)
+        refresh()
+    }
 }

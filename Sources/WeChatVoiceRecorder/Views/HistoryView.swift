@@ -8,6 +8,9 @@ struct HistoryView: View {
     @State private var searchText = ""
     @State private var pendingDeleteTask: MeetingTask?
     @State private var isShowingDeleteAlert = false
+    @State private var taskToRename: MeetingTask?
+    @State private var newTitle: String = ""
+    @State private var isShowingRenameAlert = false
     
     var filteredTasks: [MeetingTask] {
         if searchText.isEmpty {
@@ -50,6 +53,16 @@ struct HistoryView: View {
                         .padding(.vertical, 4)
                     }
                     .contextMenu {
+                        Button {
+                            taskToRename = task
+                            newTitle = task.title
+                            isShowingRenameAlert = true
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
+
+                        Divider()
+
                         Button(role: .destructive) {
                             pendingDeleteTask = task
                             isShowingDeleteAlert = true
@@ -94,6 +107,19 @@ struct HistoryView: View {
             }
         } message: {
             Text("This action cannot be undone.")
+        }
+        .alert("Rename Meeting", isPresented: $isShowingRenameAlert) {
+            TextField("New Title", text: $newTitle)
+            Button("Save") {
+                if let task = taskToRename, !newTitle.isEmpty {
+                    store.updateTitle(for: task, newTitle: newTitle)
+                    // If the currently selected task is the one being renamed, we might need to update the detail view's identity or just let the binding handle it if it's reactive enough.
+                }
+                taskToRename = nil
+            }
+            Button("Cancel", role: .cancel) {
+                taskToRename = nil
+            }
         }
     }
     
