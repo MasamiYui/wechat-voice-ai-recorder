@@ -45,6 +45,7 @@ struct RecordingView: View {
                     Text("Dual-Speaker Separated").tag(MeetingMode.separated)
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 
                 if recorder.recordingMode == .separated {
                     Text("Separated mode treats System Audio as Speaker 2 (Remote) and Microphone as Speaker 1 (Local). They will be recognized independently.")
