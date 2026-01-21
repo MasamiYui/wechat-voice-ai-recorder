@@ -14,7 +14,7 @@ let package = Package(
         .package(url: "https://github.com/stephencelis/SQLite.swift.git", from: "0.14.1")
     ],
     targets: [
-        .executableTarget(  
+        .executableTarget(
             name: "WeChatVoiceRecorder",
             dependencies: [
                 .product(name: "AlibabaCloudOSS", package: "alibabacloud-oss-swift-sdk-v2"),
