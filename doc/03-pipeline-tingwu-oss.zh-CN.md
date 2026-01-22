@@ -11,9 +11,14 @@
 - `Sources/WeChatVoiceRecorder/Services/OSSService.swift`
 - `Sources/WeChatVoiceRecorder/Services/TingwuService.swift`
 
-## 流水线节点
+## 流水线管理器
 
-UI 提供手动点按的流水线：
+根据录制模式的不同，应用使用不同的流水线管理器：
+
+- **`MeetingPipelineManager`**：用于处理“混合模式”任务。它负责单路音频的转码、上传和听悟任务创建。
+- **`SeparatedMeetingPipelineManager`**：用于处理“分离模式”任务。它会独立处理 Speaker 1 (本地) 和 Speaker 2 (远端) 的两路音频，并最终进行对话对齐。
+
+## 流水线节点 (混合模式)
 
 1. 转码
 2. 上传 OSS

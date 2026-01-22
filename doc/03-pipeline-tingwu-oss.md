@@ -11,9 +11,14 @@ Document the manual pipeline executed from the UI after a recording is saved.
 - `Sources/WeChatVoiceRecorder/Services/OSSService.swift`
 - `Sources/WeChatVoiceRecorder/Services/TingwuService.swift`
 
-## Pipeline Steps
+## Pipeline Managers
 
-The UI exposes a manual step-by-step pipeline:
+Depending on the recording mode, the app uses different pipeline managers:
+
+- **`MeetingPipelineManager`**: For "Mixed Mode" tasks. Handles transcoding, uploading, and creating Tingwu task for a single audio file.
+- **`SeparatedMeetingPipelineManager`**: For "Separated Mode" tasks. Independently processes Speaker 1 (Local) and Speaker 2 (Remote) audio files and aligns the conversation.
+
+## Pipeline Steps (Mixed Mode)
 
 1. Transcode
 2. Upload to OSS
