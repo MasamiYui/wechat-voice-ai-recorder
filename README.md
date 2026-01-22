@@ -13,6 +13,10 @@ Read this in Chinese: [README_CN.md](README_CN.md)
 - **Privacy-First**: Operates locally on your machine with clear permission handling.
 - **Meeting Minutes (Alibaba Cloud Tingwu + OSS)**: Manual pipeline to transcribe audio and generate structured minutes (summary, key points, action items), with Markdown export.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for full release history.
+
 ## Recognition Modes
 
 The app now supports two recognition modes to cater to different meeting scenarios:
