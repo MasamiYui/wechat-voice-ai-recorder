@@ -13,6 +13,13 @@ Read this in Chinese: [README_CN.md](README_CN.md)
 - **Privacy-First**: Operates locally on your machine with clear permission handling.
 - **Meeting Minutes (Alibaba Cloud Tingwu + OSS)**: Manual pipeline to transcribe audio and generate structured minutes (summary, key points, action items), with Markdown export.
 
+## Recognition Modes
+
+The app now supports two recognition modes to cater to different meeting scenarios:
+
+- **Mixed Mode (Default)**: Combines all audio sources into a single track. This is suitable for general recordings and simpler transcription needs.
+- **Dual-Speaker Separated Mode**: Specifically designed for 1-on-1 calls. It treats System Audio as Speaker 2 (Remote) and Microphone as Speaker 1 (Local). Each track is recognized independently, providing better speaker identification and alignment in the final minutes.
+
 ## Requirements
 
 - **OS**: macOS 13.0 (Ventura) or later.
@@ -24,8 +31,9 @@ Read this in Chinese: [README_CN.md](README_CN.md)
 ```mermaid
 flowchart LR
   subgraph Local["Local (macOS app)"]
-    A["AudioRecorder<br/>ScreenCaptureKit + AVFoundation"] --> B["Merge Tracks<br/>remote + mic"]
-    B --> C["MeetingTask"]
+    A["AudioRecorder<br/>ScreenCaptureKit + AVFoundation"] -->|Mixed Mode| B["Merge Tracks<br/>remote + mic"]
+    A -->|Separated Mode| C["MeetingTask"]
+    B --> C
     C --> D["MeetingPipelineManager<br/>State machine"]
     D -->|Transcode| E["AVAssetExportSession<br/>mixed_48k.m4a"]
     D -->|Persist| J["DatabaseManager<br/>SQLite"]

@@ -2,12 +2,20 @@
 
 ## Purpose
 
-Describe how the app records “remote/system audio” and “local microphone audio”, then merges them into a single file to feed the pipeline.
+Describe how the app records “remote/system audio” and “local microphone audio”, and how it processes these files in different modes.
 
 ## Key Files
 
 - `Sources/WeChatVoiceRecorder/AudioRecorder.swift`
+- `Sources/WeChatVoiceRecorder/Models/MeetingTask.swift` (contains `MeetingMode` definition)
 - `Sources/WeChatVoiceRecorder/Info.plist` (usage descriptions)
+
+## Recording Modes
+
+The app supports two modes:
+
+1. **Mixed Mode**: Merges both audio tracks into a single `mixed.m4a` file after recording ends, for single-channel pipeline processing.
+2. **Separated Mode**: Skips the merge step and keeps the original two audio files, for dual-channel independent processing and alignment pipeline.
 
 ## Track Definitions
 
@@ -49,8 +57,14 @@ sequenceDiagram
   UI->>AR: stopRecording()
   AR->>SCK: stopCapture
   AR->>AVC: stopRunning
-  AR->>AR: mergeAudioFiles(remote, local) -> mixed
-  AR->>AR: create MeetingTask(localFilePath=mixed)
+  
+  alt Mixed Mode
+    AR->>AR: mergeAudioFiles(remote, local) -> mixed
+    AR->>AR: create MeetingTask(localFilePath=mixed, mode=.mixed)
+  else Separated Mode
+    AR->>AR: skip merge
+    AR->>AR: create MeetingTask(remote, local, mode=.separated)
+  end
 ```
 
 ## Merge Strategy

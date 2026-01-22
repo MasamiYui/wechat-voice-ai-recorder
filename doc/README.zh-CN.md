@@ -12,4 +12,5 @@
 - 04-storage-and-settings.zh-CN.md
 - 05-permissions-and-signing.zh-CN.md
 - 06-testing.zh-CN.md
+- 07-dual-speaker-separate-pipeline.zh-CN.md
 
