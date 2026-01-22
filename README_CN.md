@@ -13,6 +13,10 @@ English version: [README.md](README.md)
 - **隐私优先**：所有处理均在本地完成，具有清晰的权限管理机制。
 - **会议纪要（阿里云听悟 + OSS）**：手动触发流水线进行转写和结构化纪要生成（摘要 / 要点 / 待办），并支持导出 Markdown。
 
+## 更新日志
+
+请参阅 [CHANGELOG.md](CHANGELOG.md) 查看完整的发布历史。
+
 ## 环境要求
 
 - **操作系统**：macOS 13.0 (Ventura) 或更高版本。
