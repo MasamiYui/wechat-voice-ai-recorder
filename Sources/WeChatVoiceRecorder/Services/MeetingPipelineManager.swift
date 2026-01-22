@@ -27,57 +27,145 @@ class MeetingPipelineManager: ObservableObject {
             guard task.status == .recorded || task.status == .failed else { return }
         }
         
-        settings.log("Transcode start: input=\(task.localFilePath)")
+        settings.log("Transcode start: input=\(task.localFilePath) mode=\(task.mode)")
         await updateStatus(.transcoding, error: nil)
         
-        let inputURL = URL(fileURLWithPath: task.localFilePath)
-        let outputURL = inputURL.deletingLastPathComponent().appendingPathComponent("mixed_48k.m4a")
+        if task.mode == .mixed {
+            let inputURL = URL(fileURLWithPath: task.localFilePath)
+            let outputURL = inputURL.deletingLastPathComponent().appendingPathComponent("mixed_48k.m4a")
+            
+            if await performTranscode(input: inputURL, output: outputURL) {
+                var updatedTask = task
+                updatedTask.localFilePath = outputURL.path
+                self.task.localFilePath = outputURL.path
+                self.task = updatedTask // Update published task
+                settings.log("Transcode success: output=\(outputURL.path)")
+                await updateStatus(.transcoded, error: nil)
+            } else {
+                await updateStatus(.failed, step: .transcoding, error: "Transcode failed")
+            }
+        } else {
+            // Separated Mode
+            guard let p1 = task.speaker1AudioPath, let p2 = task.speaker2AudioPath else {
+                await updateStatus(.failed, step: .transcoding, error: "Missing speaker audio paths")
+                return
+            }
+            
+            let url1 = URL(fileURLWithPath: p1)
+            let url2 = URL(fileURLWithPath: p2)
+            let out1 = url1.deletingLastPathComponent().appendingPathComponent("speaker1_48k.m4a")
+            let out2 = url2.deletingLastPathComponent().appendingPathComponent("speaker2_48k.m4a")
+            
+            async let t1 = performTranscode(input: url1, output: out1)
+            async let t2 = performTranscode(input: url2, output: out2)
+            
+            let (r1, r2) = await (t1, t2)
+            
+            if r1 && r2 {
+                var updatedTask = task
+                updatedTask.speaker1AudioPath = out1.path
+                updatedTask.speaker2AudioPath = out2.path
+                updatedTask.localFilePath = out1.path // Keep localFilePath valid as primary
+                self.task = updatedTask
+                settings.log("Transcode success: spk1=\(out1.path) spk2=\(out2.path)")
+                await updateStatus(.transcoded, error: nil)
+            } else {
+                await updateStatus(.failed, step: .transcoding, error: "Transcode failed for one or both channels")
+            }
+        }
+    }
+    
+    private func performTranscode(input: URL, output: URL) async -> Bool {
+        try? FileManager.default.removeItem(at: output)
         
-        try? FileManager.default.removeItem(at: outputURL)
+        // Basic check if input file exists and has content
+        do {
+            let attrs = try FileManager.default.attributesOfItem(atPath: input.path)
+            if let size = attrs[.size] as? UInt64, size == 0 {
+                settings.log("Transcode failed: Input file \(input.lastPathComponent) is empty (0 bytes)")
+                return false
+            }
+        } catch {
+            settings.log("Transcode failed: Cannot access input file \(input.lastPathComponent): \(error.localizedDescription)")
+            return false
+        }
+
+        let asset = AVAsset(url: input)
         
-        let asset = AVAsset(url: inputURL)
+        // Check if asset is readable
+        do {
+            let isReadable = try await asset.load(.isReadable)
+            if !isReadable {
+                settings.log("Transcode failed: Input file \(input.lastPathComponent) is not readable by AVAsset")
+                return false
+            }
+        } catch {
+            settings.log("Transcode failed: Failed to load asset metadata for \(input.lastPathComponent): \(error.localizedDescription)")
+            return false
+        }
+
         guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            settings.log("Transcode failed: cannot create export session")
-            await updateStatus(.failed, step: .transcoding, error: "Cannot create export session")
-            return
+            settings.log("Transcode failed: cannot create export session for \(input.lastPathComponent)")
+            return false
         }
         
-        exportSession.outputURL = outputURL
+        exportSession.outputURL = output
         exportSession.outputFileType = .m4a
-        
         await exportSession.export()
         
         if exportSession.status == .completed {
-            var updatedTask = task
-            updatedTask.localFilePath = outputURL.path
-            self.task.localFilePath = outputURL.path
-            settings.log("Transcode success: output=\(outputURL.path)")
-            await updateStatus(.transcoded, error: nil) // Transcode complete
+            return true
         } else {
-            settings.log("Transcode failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
-            await updateStatus(.failed, step: .transcoding, error: exportSession.error?.localizedDescription ?? "Transcode failed")
+            let err = exportSession.error?.localizedDescription ?? "Unknown error"
+            settings.log("Transcode failed for \(input.lastPathComponent): \(err)")
+            return false
         }
     }
     
     func upload() async {
-        settings.log("Upload start: file=\(task.localFilePath)")
+        settings.log("Upload start: mode=\(task.mode)")
         await updateStatus(.uploading, error: nil)
         
         do {
-            let fileURL = URL(fileURLWithPath: task.localFilePath)
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy/MM/dd"
             let datePath = formatter.string(from: task.createdAt)
-            let objectKey = "\(settings.ossPrefix)\(datePath)/\(task.recordingId)/mixed.m4a"
             
-            let url = try await ossService.uploadFile(fileURL: fileURL, objectKey: objectKey)
-            
-            var updatedTask = task
-            updatedTask.ossUrl = url
-            updatedTask.status = .uploaded // Ready to create task
-            self.task = updatedTask
-            self.save()
-            settings.log("Upload success: url=\(url)")
+            if task.mode == .mixed {
+                let fileURL = URL(fileURLWithPath: task.localFilePath)
+                let objectKey = "\(settings.ossPrefix)\(datePath)/\(task.recordingId)/mixed.m4a"
+                
+                let url = try await ossService.uploadFile(fileURL: fileURL, objectKey: objectKey)
+                
+                var updatedTask = task
+                updatedTask.ossUrl = url
+                updatedTask.status = .uploaded // Ready to create task
+                self.task = updatedTask
+                self.save()
+                settings.log("Upload success: url=\(url)")
+            } else {
+                guard let p1 = task.speaker1AudioPath, let p2 = task.speaker2AudioPath else {
+                    throw NSError(domain: "Pipeline", code: 404, userInfo: [NSLocalizedDescriptionKey: "Missing speaker paths"])
+                }
+                
+                let u1 = URL(fileURLWithPath: p1)
+                let u2 = URL(fileURLWithPath: p2)
+                let key1 = "\(settings.ossPrefix)\(datePath)/\(task.recordingId)/speaker1.m4a"
+                let key2 = "\(settings.ossPrefix)\(datePath)/\(task.recordingId)/speaker2.m4a"
+                
+                async let upload1 = ossService.uploadFile(fileURL: u1, objectKey: key1)
+                async let upload2 = ossService.uploadFile(fileURL: u2, objectKey: key2)
+                
+                let (url1, url2) = try await (upload1, upload2)
+                
+                var updatedTask = task
+                updatedTask.ossUrl = url1
+                updatedTask.speaker2OssUrl = url2
+                updatedTask.status = .uploaded
+                self.task = updatedTask
+                self.save()
+                settings.log("Upload success: url1=\(url1) url2=\(url2)")
+            }
         } catch {
             settings.log("Upload failed: \(error.localizedDescription)")
             await updateStatus(.failed, step: .uploading, error: error.localizedDescription)
@@ -86,18 +174,37 @@ class MeetingPipelineManager: ObservableObject {
     
     func createTask() async {
         guard let ossUrl = task.ossUrl else { return }
-        settings.log("Create task start: ossUrl=\(ossUrl)")
+        settings.log("Create task start: mode=\(task.mode)")
         await updateStatus(.created, error: nil) // Using created as "Creating..." (transient)
         
         do {
-            let taskId = try await tingwuService.createTask(fileUrl: ossUrl)
-            
-            var updatedTask = task
-            updatedTask.tingwuTaskId = taskId
-            updatedTask.status = .polling // Ready to poll
-            self.task = updatedTask
-            self.save()
-            settings.log("Create task success: taskId=\(taskId)")
+            if task.mode == .mixed {
+                let taskId = try await tingwuService.createTask(fileUrl: ossUrl)
+                
+                var updatedTask = task
+                updatedTask.tingwuTaskId = taskId
+                updatedTask.status = .polling // Ready to poll
+                self.task = updatedTask
+                self.save()
+                settings.log("Create task success: taskId=\(taskId)")
+            } else {
+                guard let url2 = task.speaker2OssUrl else {
+                    throw NSError(domain: "Pipeline", code: 404, userInfo: [NSLocalizedDescriptionKey: "Missing speaker 2 url"])
+                }
+                
+                async let t1 = tingwuService.createTask(fileUrl: ossUrl)
+                async let t2 = tingwuService.createTask(fileUrl: url2)
+                
+                let (id1, id2) = try await (t1, t2)
+                
+                var updatedTask = task
+                updatedTask.tingwuTaskId = id1
+                updatedTask.speaker2TingwuTaskId = id2
+                updatedTask.status = .polling
+                self.task = updatedTask
+                self.save()
+                settings.log("Create task success: id1=\(id1) id2=\(id2)")
+            }
         } catch {
              settings.log("Create task failed: \(error.localizedDescription)")
              await updateStatus(.failed, step: .created, error: error.localizedDescription)
@@ -105,6 +212,14 @@ class MeetingPipelineManager: ObservableObject {
     }
     
     func pollStatus() async {
+        if task.mode == .mixed {
+            await pollMixedStatus()
+        } else {
+            await pollSeparatedStatus()
+        }
+    }
+
+    func pollMixedStatus() async {
         guard let taskId = task.tingwuTaskId else { return }
         settings.log("Poll status start: taskId=\(taskId)")
         await MainActor.run { self.isProcessing = true }
@@ -129,32 +244,7 @@ class MeetingPipelineManager: ObservableObject {
                         updatedTask.rawResponse = String(data: jsonData, encoding: .utf8)
                     }
                     
-                    var transcriptText: String?
-                    if let transcriptionUrl = result["Transcription"] as? String {
-                        settings.log("Downloading transcript from: \(transcriptionUrl)")
-                        do {
-                            let transcriptionData = try await tingwuService.fetchJSON(url: transcriptionUrl)
-                            settings.log("Transcript data keys: \(transcriptionData.keys.joined(separator: ", "))")
-                            transcriptText = buildTranscriptText(from: transcriptionData)
-                        } catch {
-                            settings.log("Failed to download transcript: \(error.localizedDescription)")
-                        }
-                    } else if let transcriptionObj = result["Transcription"] as? [String: Any] {
-                        settings.log("Using inline transcription object")
-                        transcriptText = buildTranscriptText(from: transcriptionObj)
-                    }
-                    
-                    if transcriptText == nil {
-                        if let paragraphs = result["Paragraphs"] as? [[String: Any]] {
-                            transcriptText = buildTranscriptText(from: ["Paragraphs": paragraphs])
-                        } else if let sentences = result["Sentences"] as? [[String: Any]] {
-                            transcriptText = buildTranscriptText(from: ["Sentences": sentences])
-                        } else if let transcriptInline = result["Transcript"] as? String {
-                            transcriptText = transcriptInline
-                        }
-                    }
-                    
-                    if let transcriptText, !transcriptText.isEmpty {
+                    if let transcriptText = await fetchTranscript(from: result) {
                         updatedTask.transcript = transcriptText
                     }
                     
@@ -294,6 +384,123 @@ class MeetingPipelineManager: ObservableObject {
         }
         
         await MainActor.run { self.isProcessing = false }
+    }
+    
+    func pollSeparatedStatus() async {
+        guard let id1 = task.tingwuTaskId, let id2 = task.speaker2TingwuTaskId else { return }
+        await MainActor.run { self.isProcessing = true }
+        
+        async let r1 = pollSingleTask(taskId: id1)
+        async let r2 = pollSingleTask(taskId: id2)
+        
+        let (res1, res2) = await (r1, r2)
+        
+        var updatedTask = task
+        var s1Done = false
+        var s2Done = false
+        var hasFailure = false
+        
+        // Handle Result 1
+        if let (status, data) = res1 {
+            if status == "SUCCESS" || status == "COMPLETED" {
+                updatedTask.speaker1Status = .completed
+                if let result = data?["Result"] as? [String: Any],
+                   let transcript = await fetchTranscript(from: result) {
+                     updatedTask.speaker1Transcript = transcript
+                }
+                s1Done = true
+            } else if status == "FAILED" {
+                updatedTask.speaker1Status = .failed
+                hasFailure = true
+                s1Done = true
+            }
+        }
+        
+        // Handle Result 2
+        if let (status, data) = res2 {
+            if status == "SUCCESS" || status == "COMPLETED" {
+                updatedTask.speaker2Status = .completed
+                if let result = data?["Result"] as? [String: Any],
+                   let transcript = await fetchTranscript(from: result) {
+                     updatedTask.speaker2Transcript = transcript
+                }
+                s2Done = true
+            } else if status == "FAILED" {
+                updatedTask.speaker2Status = .failed
+                hasFailure = true
+                s2Done = true
+            }
+        }
+        
+        self.task = updatedTask
+        self.save()
+        
+        if s1Done && s2Done {
+             if updatedTask.speaker1Status == .completed || updatedTask.speaker2Status == .completed {
+                 // At least one succeeded
+                 await alignTranscripts()
+                 updatedTask = self.task // Refresh
+                 updatedTask.status = .completed
+                 if hasFailure {
+                     updatedTask.lastError = "Partial success: One speaker failed"
+                 }
+                 self.task = updatedTask
+                 self.save()
+             } else {
+                 await updateStatus(.failed, step: .polling, error: "Both speakers failed")
+             }
+        }
+        
+        await MainActor.run { self.isProcessing = false }
+    }
+    
+    private func pollSingleTask(taskId: String) async -> (String?, [String: Any]?)? {
+        do {
+            return try await tingwuService.getTaskInfo(taskId: taskId)
+        } catch {
+            settings.log("Poll single failed: \(error)")
+            return nil
+        }
+    }
+    
+    private func fetchTranscript(from result: [String: Any]) async -> String? {
+        var transcriptText: String?
+        if let transcriptionUrl = result["Transcription"] as? String {
+            do {
+                let transcriptionData = try await tingwuService.fetchJSON(url: transcriptionUrl)
+                transcriptText = buildTranscriptText(from: transcriptionData)
+            } catch {
+                settings.log("Failed to download transcript")
+            }
+        } else if let transcriptionObj = result["Transcription"] as? [String: Any] {
+            transcriptText = buildTranscriptText(from: transcriptionObj)
+        }
+        
+        if transcriptText == nil {
+            if let paragraphs = result["Paragraphs"] as? [[String: Any]] {
+                transcriptText = buildTranscriptText(from: ["Paragraphs": paragraphs])
+            } else if let sentences = result["Sentences"] as? [[String: Any]] {
+                transcriptText = buildTranscriptText(from: ["Sentences": sentences])
+            } else if let transcriptInline = result["Transcript"] as? String {
+                transcriptText = transcriptInline
+            }
+        }
+        return transcriptText
+    }
+    
+    private func alignTranscripts() async {
+        // Simple merge for now
+        let t1 = task.speaker1Transcript ?? ""
+        let t2 = task.speaker2Transcript ?? ""
+        var merged = ""
+        if !t1.isEmpty { merged += "### Speaker 1 (Local)\n\(t1)\n\n" }
+        if !t2.isEmpty { merged += "### Speaker 2 (Remote)\n\(t2)\n" }
+        
+        var updatedTask = task
+        updatedTask.transcript = merged
+        // TODO: Implement real alignment logic here to populate alignedConversation
+        self.task = updatedTask
+        self.save()
     }
     
     func retry() async {

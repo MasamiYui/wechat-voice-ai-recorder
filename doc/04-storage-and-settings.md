@@ -18,10 +18,52 @@ Explain where data is stored, how settings and secrets are handled, and how logs
 
 Table `meeting_tasks` stores the full task state:
 
-- Identifiers: `id`, `recording_id`, `created_at`, `title`
-- Files and cloud: `local_file_path`, `oss_url`, `tingwu_task_id`
-- Status: `status`, `last_error`
-- Outputs: `raw_response`, `transcript`, `summary`, `key_points`, `action_items`
+#### Core Fields
+
+| Field | Type | Note |
+| :--- | :--- | :--- |
+| `id` | TEXT (PK) | Task Unique Identifier (UUID) |
+| `created_at` | DATETIME | Task Creation Time |
+| `recording_id` | TEXT | Associated Recording ID |
+| `local_file_path` | TEXT | Local Original Merged Audio Path |
+| `oss_url` | TEXT | Public URL after Uploading |
+| `tingwu_task_id` | TEXT | Tingwu Task ID |
+| `status` | TEXT | Task Status (recorded, transcoding, uploading, polling, completed, failed) |
+| `title` | TEXT | Task Title |
+
+#### AI Results
+
+| Field | Type | Note |
+| :--- | :--- | :--- |
+| `transcript` | TEXT | Full Transcription Text |
+| `summary` | TEXT | AI Generated Summary |
+| `key_points` | TEXT | Key Points Summary |
+| `action_items` | TEXT | Action Items |
+| `raw_response` | TEXT | Raw JSON Response from Tingwu API |
+
+#### Separated Mode (Two-Person Separation)
+
+| Field | Type | Note |
+| :--- | :--- | :--- |
+| `mode` | TEXT | Recording Mode (`mixed` or `separated`) |
+| `speaker1_audio_path` | TEXT | Local Audio Path for Speaker 1 |
+| `speaker2_audio_path` | TEXT | Local Audio Path for Speaker 2 |
+| `speaker2_oss_url` | TEXT | Public OSS URL for Speaker 2 |
+| `speaker2_tingwu_task_id` | TEXT | Tingwu Task ID for Speaker 2 |
+| `speaker1_transcript` | TEXT | Transcription for Speaker 1 |
+| `speaker2_transcript` | TEXT | Transcription for Speaker 2 |
+| `aligned_conversation` | TEXT | Aligned Conversation Stream (JSON) |
+| `speaker1_status` | TEXT | Task Status for Speaker 1 |
+| `speaker2_status` | TEXT | Task Status for Speaker 2 |
+
+#### Retry and Error Handling
+
+| Field | Type | Note |
+| :--- | :--- | :--- |
+| `last_error` | TEXT | Error Message of the Last Failure |
+| `failed_step` | TEXT | The Step where the Pipeline Failed |
+| `retry_count` | INTEGER | Number of Retries Attempted |
+| `last_successful_status` | TEXT | Last Successful Status (for resuming) |
 
 Writes use `insert(or: .replace)` keyed by `id`.
 

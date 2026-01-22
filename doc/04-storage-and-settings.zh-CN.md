@@ -18,10 +18,52 @@
 
 表 `meeting_tasks` 保存完整任务状态：
 
-- 标识：`id`、`recording_id`、`created_at`、`title`
-- 文件/云端：`local_file_path`、`oss_url`、`tingwu_task_id`
-- 状态：`status`、`last_error`
-- 输出：`raw_response`、`transcript`、`summary`、`key_points`、`action_items`
+#### 核心字段
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `id` | TEXT (PK) | 任务唯一标识 (UUID) |
+| `created_at` | DATETIME | 任务创建时间 |
+| `recording_id` | TEXT | 关联录音文件的 ID |
+| `local_file_path` | TEXT | 本地原始合成音频路径 |
+| `oss_url` | TEXT | 上传后的公网 URL |
+| `tingwu_task_id` | TEXT | 听悟任务 ID |
+| `status` | TEXT | 任务状态 (recorded, transcoding, uploading, polling, completed, failed) |
+| `title` | TEXT | 任务标题 |
+
+#### AI 处理结果
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `transcript` | TEXT | 完整转写文本 |
+| `summary` | TEXT | AI 生成的内容摘要 |
+| `key_points` | TEXT | 关键点总结 |
+| `action_items` | TEXT | 待办事项/行动点 |
+| `raw_response` | TEXT | 听悟接口返回的原始 JSON 响应 |
+
+#### 双人分离识别模式 (Separated Mode)
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `mode` | TEXT | 识别模式 (`mixed` 或 `separated`) |
+| `speaker1_audio_path` | TEXT | 说话人1的本地音频路径 |
+| `speaker2_audio_path` | TEXT | 说话人2的本地音频路径 |
+| `speaker2_oss_url` | TEXT | 说话人2上传后的公网 URL |
+| `speaker2_tingwu_task_id` | TEXT | 说话人2的听悟任务 ID |
+| `speaker1_transcript` | TEXT | 说话人1的转写文本 |
+| `speaker2_transcript` | TEXT | 说话人2的转写文本 |
+| `aligned_conversation` | TEXT | 经过时间戳对齐后的对话流 (JSON) |
+| `speaker1_status` | TEXT | 说话人1的任务状态 |
+| `speaker2_status` | TEXT | 说话人2的任务状态 |
+
+#### 重试与错误处理
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `last_error` | TEXT | 最后一次失败的错误信息 |
+| `failed_step` | TEXT | 失败的流水线步骤 |
+| `retry_count` | INTEGER | 已重试次数 |
+| `last_successful_status` | TEXT | 最后一次成功的状态（用于断点续传） |
 
 写入采用 `insert(or: .replace)`，以 `id` 为主键。
 

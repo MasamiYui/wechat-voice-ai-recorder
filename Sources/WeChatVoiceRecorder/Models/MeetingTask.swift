@@ -12,17 +12,37 @@ enum MeetingTaskStatus: String, Codable, CaseIterable, Hashable {
     case failed        // 失败
 }
 
+enum MeetingMode: String, Codable, Hashable {
+    case mixed        // 混合模式 (默认)
+    case separated    // 分离模式 (双人分轨)
+}
+
 struct MeetingTask: Identifiable, Codable, Hashable, Equatable {
     var id: UUID = UUID()
     var createdAt: Date = Date()
     var recordingId: String
     
+    // Configuration
+    var mode: MeetingMode = .mixed
+    
     // File Paths
-    var localFilePath: String
-    var ossUrl: String?
+    var localFilePath: String // Mixed audio path (legacy) or Speaker 1 (Local) in separated mode? -> Let's keep this as "primary display path" or "mixed path"
+    // In separated mode, localFilePath might store the mixed preview if we make one, or just be ignored?
+    // Plan says: "mixed path (legacy)" and add speaker1/2 paths.
+    // To minimize breakage, let's keep localFilePath as the "main" file. In separated mode, maybe we still generate a mix for preview? 
+    // Wait, the plan says "skip merge". So localFilePath might be empty or point to speaker1?
+    // Let's allow localFilePath to be Speaker 1 (Local) and add speaker2Path?
+    // Actually, explicit is better.
+    var speaker1AudioPath: String? // Local Mic
+    var speaker2AudioPath: String? // Remote System
+    
+    var ossUrl: String? // Mixed OSS URL or Speaker 1 OSS URL?
+    var speaker2OssUrl: String? // Speaker 2 OSS URL
     
     // Tingwu Info
-    var tingwuTaskId: String?
+    var tingwuTaskId: String? // Mixed or Speaker 1 Task ID
+    var speaker2TingwuTaskId: String? // Speaker 2 Task ID
+    
     var taskKey: String?
     var apiStatus: String?
     var statusText: String?
@@ -32,11 +52,19 @@ struct MeetingTask: Identifiable, Codable, Hashable, Equatable {
     
     // Results
     var rawResponse: String?
-    var transcript: String?
+    var transcript: String? // Mixed transcript or merged display transcript
+    var speaker1Transcript: String?
+    var speaker2Transcript: String?
+    var alignedConversation: String? // JSON String
+    
     var summary: String?
     var keyPoints: String?
     var actionItems: String?
     var outputMp3Path: String?
+    
+    // Status for Separated Mode
+    var speaker1Status: MeetingTaskStatus?
+    var speaker2Status: MeetingTaskStatus?
     
     // Error & Retry
     var lastError: String?

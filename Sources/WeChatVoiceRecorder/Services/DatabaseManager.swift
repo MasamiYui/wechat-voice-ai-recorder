@@ -35,6 +35,18 @@ class DatabaseManager {
     private let failedStep = Expression<String?>("failed_step")
     private let retryCount = Expression<Int>("retry_count")
     
+    // New Fields for Separated Mode
+    private let mode = Expression<String>("mode")
+    private let speaker1AudioPath = Expression<String?>("speaker1_audio_path")
+    private let speaker2AudioPath = Expression<String?>("speaker2_audio_path")
+    private let speaker2OssUrl = Expression<String?>("speaker2_oss_url")
+    private let speaker2TingwuTaskId = Expression<String?>("speaker2_tingwu_task_id")
+    private let speaker1Transcript = Expression<String?>("speaker1_transcript")
+    private let speaker2Transcript = Expression<String?>("speaker2_transcript")
+    private let alignedConversation = Expression<String?>("aligned_conversation")
+    private let speaker1Status = Expression<String?>("speaker1_status")
+    private let speaker2Status = Expression<String?>("speaker2_status")
+    
     private init() {
         setupDatabase()
     }
@@ -104,20 +116,61 @@ class DatabaseManager {
                 t.column(lastSuccessfulStatus)
                 t.column(failedStep)
                 t.column(retryCount, defaultValue: 0)
+                
+                // Separated Mode
+                t.column(mode, defaultValue: "mixed")
+                t.column(speaker1AudioPath)
+                t.column(speaker2AudioPath)
+                t.column(speaker2OssUrl)
+                t.column(speaker2TingwuTaskId)
+                t.column(speaker1Transcript)
+                t.column(speaker2Transcript)
+                t.column(alignedConversation)
+                t.column(speaker1Status)
+                t.column(speaker2Status)
             })
             
-            // Migration for existing tables
-            _ = try? db.run(tasks.addColumn(taskKey))
-            _ = try? db.run(tasks.addColumn(apiStatus))
-            _ = try? db.run(tasks.addColumn(statusText))
-            _ = try? db.run(tasks.addColumn(bizDuration))
-            _ = try? db.run(tasks.addColumn(outputMp3Path))
-            _ = try? db.run(tasks.addColumn(lastSuccessfulStatus))
-            _ = try? db.run(tasks.addColumn(failedStep))
-            _ = try? db.run(tasks.addColumn(retryCount, defaultValue: 0))
+            // Migration for existing tables - only add if they don't exist
+            let existingColumns = getColumnNames()
+            
+            if !existingColumns.contains("task_key") { _ = try? db.run(tasks.addColumn(taskKey)) }
+            if !existingColumns.contains("api_status") { _ = try? db.run(tasks.addColumn(apiStatus)) }
+            if !existingColumns.contains("status_text") { _ = try? db.run(tasks.addColumn(statusText)) }
+            if !existingColumns.contains("biz_duration") { _ = try? db.run(tasks.addColumn(bizDuration)) }
+            if !existingColumns.contains("output_mp3_path") { _ = try? db.run(tasks.addColumn(outputMp3Path)) }
+            if !existingColumns.contains("last_successful_status") { _ = try? db.run(tasks.addColumn(lastSuccessfulStatus)) }
+            if !existingColumns.contains("failed_step") { _ = try? db.run(tasks.addColumn(failedStep)) }
+            if !existingColumns.contains("retry_count") { _ = try? db.run(tasks.addColumn(retryCount, defaultValue: 0)) }
+            
+            // Migration for Separated Mode
+            if !existingColumns.contains("mode") { _ = try? db.run(tasks.addColumn(mode, defaultValue: "mixed")) }
+            if !existingColumns.contains("speaker1_audio_path") { _ = try? db.run(tasks.addColumn(speaker1AudioPath)) }
+            if !existingColumns.contains("speaker2_audio_path") { _ = try? db.run(tasks.addColumn(speaker2AudioPath)) }
+            if !existingColumns.contains("speaker2_oss_url") { _ = try? db.run(tasks.addColumn(speaker2OssUrl)) }
+            if !existingColumns.contains("speaker2_tingwu_task_id") { _ = try? db.run(tasks.addColumn(speaker2TingwuTaskId)) }
+            if !existingColumns.contains("speaker1_transcript") { _ = try? db.run(tasks.addColumn(speaker1Transcript)) }
+            if !existingColumns.contains("speaker2_transcript") { _ = try? db.run(tasks.addColumn(speaker2Transcript)) }
+            if !existingColumns.contains("aligned_conversation") { _ = try? db.run(tasks.addColumn(alignedConversation)) }
+            if !existingColumns.contains("speaker1_status") { _ = try? db.run(tasks.addColumn(speaker1Status)) }
+            if !existingColumns.contains("speaker2_status") { _ = try? db.run(tasks.addColumn(speaker2Status)) }
         } catch {
             print("Create table error: \(error)")
         }
+    }
+    
+    private func getColumnNames() -> Set<String> {
+        guard let db = db else { return [] }
+        var names = Set<String>()
+        do {
+            for row in try db.prepare("PRAGMA table_info(meeting_tasks)") {
+                if let name = row[1] as? String {
+                    names.insert(name)
+                }
+            }
+        } catch {
+            print("Get column names error: \(error)")
+        }
+        return names
     }
     
     // CRUD Operations
@@ -148,7 +201,17 @@ class DatabaseManager {
                 outputMp3Path <- task.outputMp3Path,
                 lastSuccessfulStatus <- task.lastSuccessfulStatus?.rawValue,
                 failedStep <- task.failedStep?.rawValue,
-                retryCount <- task.retryCount
+                retryCount <- task.retryCount,
+                mode <- task.mode.rawValue,
+                speaker1AudioPath <- task.speaker1AudioPath,
+                speaker2AudioPath <- task.speaker2AudioPath,
+                speaker2OssUrl <- task.speaker2OssUrl,
+                speaker2TingwuTaskId <- task.speaker2TingwuTaskId,
+                speaker1Transcript <- task.speaker1Transcript,
+                speaker2Transcript <- task.speaker2Transcript,
+                alignedConversation <- task.alignedConversation,
+                speaker1Status <- task.speaker1Status?.rawValue,
+                speaker2Status <- task.speaker2Status?.rawValue
             )
             try db.run(insert)
         } catch {
@@ -197,6 +260,24 @@ class DatabaseManager {
                     task.failedStep = failedStepEnum
                 }
                 task.retryCount = row[retryCount]
+                
+                if let modeRaw = try? row.get(mode), let modeEnum = MeetingMode(rawValue: modeRaw) {
+                    task.mode = modeEnum
+                }
+                task.speaker1AudioPath = row[speaker1AudioPath]
+                task.speaker2AudioPath = row[speaker2AudioPath]
+                task.speaker2OssUrl = row[speaker2OssUrl]
+                task.speaker2TingwuTaskId = row[speaker2TingwuTaskId]
+                task.speaker1Transcript = row[speaker1Transcript]
+                task.speaker2Transcript = row[speaker2Transcript]
+                task.alignedConversation = row[alignedConversation]
+                
+                if let s1StatusRaw = row[speaker1Status], let s1StatusEnum = MeetingTaskStatus(rawValue: s1StatusRaw) {
+                    task.speaker1Status = s1StatusEnum
+                }
+                if let s2StatusRaw = row[speaker2Status], let s2StatusEnum = MeetingTaskStatus(rawValue: s2StatusRaw) {
+                    task.speaker2Status = s2StatusEnum
+                }
                 
                 results.append(task)
             }

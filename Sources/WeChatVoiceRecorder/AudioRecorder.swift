@@ -10,6 +10,7 @@ class AudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegat
     @Published var availableApps: [SCRunningApplication] = []
     @Published var selectedApp: SCRunningApplication?
     @Published var latestTask: MeetingTask?
+    @Published var recordingMode: MeetingMode = .mixed
     
     var lastUploadedURL: URL? {
         if let urlStr = latestTask?.ossUrl {
@@ -173,21 +174,37 @@ class AudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegat
                 return
             }
 
-            let settings: [String: Any] = [
+            // AAC encoder is picky. 44100 or 48000 are best.
+            // We use the source rate if it's common, otherwise default to 48000.
+            let targetSampleRate: Double
+            if sampleRate == 44100 || sampleRate == 48000 || sampleRate == 32000 || sampleRate == 24000 || sampleRate == 16000 {
+                targetSampleRate = sampleRate
+            } else {
+                targetSampleRate = 48000
+                self.settings.log("Non-standard sample rate \(sampleRate), using 48000 for AAC")
+            }
+
+            let audioSettings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: sampleRate,
+                AVSampleRateKey: targetSampleRate,
                 AVNumberOfChannelsKey: channels,
-                AVEncoderBitRateKey: 128000
+                AVEncoderBitRateKey: 128000,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
             ]
             
-            remoteAssetWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: settings, sourceFormatHint: formatDesc)
+            remoteAssetWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings, sourceFormatHint: formatDesc)
             remoteAssetWriterInput?.expectsMediaDataInRealTime = true
             
             if let writer = remoteAssetWriter, let input = remoteAssetWriterInput, writer.canAdd(input) {
                 writer.add(input)
-                writer.startWriting()
-                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-                self.settings.log("Remote writer started successfully")
+                if writer.startWriting() {
+                    writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+                    self.settings.log("Remote writer started successfully at rate \(targetSampleRate)")
+                } else {
+                    self.settings.log("Remote writer failed to startWriting: \(String(describing: writer.error))")
+                }
+            } else {
+                self.settings.log("Remote writer cannot add input")
             }
         } catch {
             settings.log("Remote writer error: \(error.localizedDescription)")
@@ -242,21 +259,36 @@ class AudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegat
                 return
             }
 
-            let settings: [String: Any] = [
+            // AAC encoder is picky. 44100 or 48000 are best.
+            let targetSampleRate: Double
+            if sampleRate == 44100 || sampleRate == 48000 || sampleRate == 32000 || sampleRate == 24000 || sampleRate == 16000 {
+                targetSampleRate = sampleRate
+            } else {
+                targetSampleRate = 48000
+                self.settings.log("Non-standard mic sample rate \(sampleRate), using 48000 for AAC")
+            }
+
+            let audioSettings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: sampleRate,
+                AVSampleRateKey: targetSampleRate,
                 AVNumberOfChannelsKey: channels,
-                AVEncoderBitRateKey: 128000
+                AVEncoderBitRateKey: 128000,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
             ]
             
-            micAssetWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: settings, sourceFormatHint: formatDesc)
+            micAssetWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings, sourceFormatHint: formatDesc)
             micAssetWriterInput?.expectsMediaDataInRealTime = true
             
             if let writer = micAssetWriter, let input = micAssetWriterInput, writer.canAdd(input) {
                 writer.add(input)
-                writer.startWriting()
-                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-                self.settings.log("Mic writer started successfully")
+                if writer.startWriting() {
+                    writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+                    self.settings.log("Mic writer started successfully at rate \(targetSampleRate)")
+                } else {
+                    self.settings.log("Mic writer failed to startWriting: \(String(describing: writer.error))")
+                }
+            } else {
+                self.settings.log("Mic writer cannot add input")
             }
         } catch {
             settings.log("Mic writer error: \(error.localizedDescription)")
@@ -294,30 +326,49 @@ class AudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegat
                 }
             }
             
-            // 3. Merge
+            // 3. Merge or Separated
             if let rURL = remoteURL, let lURL = localURL, let recId = recordingId {
-                settings.log("Merge start: remote=\(rURL.path) local=\(lURL.path)")
-                await MainActor.run { self.statusMessage = "Merging audio files..." }
-                let mixedURL = rURL.deletingLastPathComponent().appendingPathComponent(rURL.lastPathComponent.replacingOccurrences(of: "remote", with: "mixed"))
-                do {
-                    try await mergeAudioFiles(audio1: rURL, audio2: lURL, output: mixedURL)
+                if self.recordingMode == .mixed {
+                    settings.log("Merge start: remote=\(rURL.path) local=\(lURL.path)")
+                    await MainActor.run { self.statusMessage = "Merging audio files..." }
+                    let mixedURL = rURL.deletingLastPathComponent().appendingPathComponent(rURL.lastPathComponent.replacingOccurrences(of: "remote", with: "mixed"))
+                    do {
+                        try await mergeAudioFiles(audio1: rURL, audio2: lURL, output: mixedURL)
+                        await MainActor.run {
+                            self.isRecording = false
+                            self.statusMessage = "Saved 3 files to Downloads/WeChatRecordings"
+                            
+                            // Create Meeting Task
+                            let title = "Meeting \(recId)"
+                            let task = MeetingTask(recordingId: recId, localFilePath: mixedURL.path, title: title)
+                            DatabaseManager.shared.saveTask(task)
+                            self.latestTask = task
+                        }
+                        settings.log("Merge success: mixed=\(mixedURL.path)")
+                    } catch {
+                        await MainActor.run {
+                            self.isRecording = false
+                            self.statusMessage = "Merge failed: \(error.localizedDescription)"
+                        }
+                        settings.log("Merge failed: \(error.localizedDescription)")
+                    }
+                } else {
+                    // Separated Mode
+                    settings.log("Separated mode: Skip merge. remote=\(rURL.path) local=\(lURL.path)")
                     await MainActor.run {
                         self.isRecording = false
-                        self.statusMessage = "Saved 3 files to Downloads/WeChatRecordings"
+                        self.statusMessage = "Saved 2 files (Separated) to Downloads/WeChatRecordings"
                         
-                        // Create Meeting Task
-                        let title = "Meeting \(recId)"
-                        let task = MeetingTask(recordingId: recId, localFilePath: mixedURL.path, title: title)
+                        let title = "Meeting \(recId) (Separated)"
+                        // Use Mic (Local) as primary display file
+                        var task = MeetingTask(recordingId: recId, localFilePath: lURL.path, title: title)
+                        task.mode = .separated
+                        task.speaker1AudioPath = lURL.path // Mic (Local) -> Speaker 1
+                        task.speaker2AudioPath = rURL.path // System (Remote) -> Speaker 2
+                        
                         DatabaseManager.shared.saveTask(task)
                         self.latestTask = task
                     }
-                    settings.log("Merge success: mixed=\(mixedURL.path)")
-                } catch {
-                    await MainActor.run {
-                        self.isRecording = false
-                        self.statusMessage = "Merge failed: \(error.localizedDescription)"
-                    }
-                    settings.log("Merge failed: \(error.localizedDescription)")
                 }
             }
             
