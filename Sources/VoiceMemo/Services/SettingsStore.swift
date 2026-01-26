@@ -97,6 +97,7 @@ class SettingsStore: ObservableObject {
         self.enableVerboseLogging = UserDefaults.standard.object(forKey: "enableVerboseLogging") as? Bool ?? false
         
         checkSecrets()
+        log("SettingsStore initialized (system). Storage type: \(storageType)")
     }
     
     func checkSecrets() {
@@ -143,7 +144,7 @@ class SettingsStore: ObservableObject {
         let line = "[\(timestamp)] \(message)"
         print(line) // 同时输出到控制台方便调试
         
-        guard enableVerboseLogging || message.contains("error") || message.contains("failed") || message.contains("test") else { return }
+        guard enableVerboseLogging || message.contains("error") || message.contains("failed") || message.contains("test") || message.contains("system") else { return }
         
         logQueue.async {
             let url = self.logFileURL()
@@ -164,8 +165,12 @@ class SettingsStore: ObservableObject {
     }
     
     func readLogText() -> String {
-        let url = logFileURL()
-        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        var logContent = ""
+        logQueue.sync {
+            let url = logFileURL()
+            logContent = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        }
+        return logContent
     }
     
     func clearLogFile() {

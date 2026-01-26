@@ -55,7 +55,7 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
         isShutdown = true
         if let pool = pool {
             self.pool = nil
-            try? pool.shutdown().wait()
+            pool.shutdown()
         }
         try? group.syncShutdownGracefully()
     }
