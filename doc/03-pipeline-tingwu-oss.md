@@ -17,6 +17,13 @@ The app uses a single pipeline manager:
 
 - **`MeetingPipelineManager`**: Handles both "Mixed" and "Separated" mode tasks. Mode-specific behavior is selected via `MeetingTask.mode` (e.g. upload/create/poll for one file vs two files).
 
+Internally, `MeetingPipelineManager` runs the pipeline via a small node abstraction:
+
+- `PipelineNode` (step-based execution)
+- `PipelineContext` (task + services + settings)
+
+This keeps the UI-facing API stable (e.g. `transcode()`, `upload()`) while allowing the implementation to be composed and resumed from any step.
+
 ## Pipeline Steps (Mixed Mode)
 
 1. Transcode
@@ -28,30 +35,32 @@ The app uses a single pipeline manager:
 
 ## Transcode
 
-`MeetingPipelineManager.transcode()`:
+`MeetingPipelineManager.transcode()` triggers the full pipeline start. The actual work is performed by `TranscodeNode`.
 
 - Input: `task.localFilePath` (typically `...mixed.m4a`)
 - Output: `mixed_48k.m4a` in the same folder
 - Uses `AVAssetExportSession` with preset `AVAssetExportPresetAppleM4A`
 - Updates:
   - `task.localFilePath` to the transcoded file
-  - `task.status` to `transcoded` on success, `failed` on error
+  - `task.status`: `transcoding` → `transcoded` (or `failed`)
 
 ## Upload to OSS
 
-`MeetingPipelineManager.upload()` → `OSSService.uploadFile()`:
+`UploadNode` → `OSSService.uploadFile()`:
 
 - Object key format:
   - `"<ossPrefix><yyyy/MM/dd>/<recordingId>/mixed.m4a"`
+- Notes:
+  - Local transcoded filename uses `mixed_48k.m4a`, but the OSS object key remains `mixed.m4a`.
 - Returns:
   - `publicUrl` computed as `https://<bucket>.<endpointHost>/<objectKey>`
 - Updates:
   - `task.ossUrl`
-  - `task.status = uploaded`
+  - `task.status`: `uploading` → `uploaded`
 
 ## Create Tingwu Task
 
-`MeetingPipelineManager.createTask()` → `TingwuService.createTask()`:
+`CreateTaskNode` → `TingwuService.createTask()`:
 
 - Requires:
   - `task.ossUrl` is a publicly accessible URL
@@ -75,7 +84,7 @@ On success:
 
 ## Poll and Parse Results
 
-`MeetingPipelineManager.pollStatus()`:
+`PollingNode`:
 
 - Calls `TingwuService.getTaskInfo(taskId:)`
 - On `SUCCESS` / `COMPLETED`:
@@ -89,6 +98,35 @@ On success:
   - Sets `task.status = completed`
 - On `FAILED`:
   - Sets `task.status = failed` and stores a message in `task.lastError`
+- While running:
+  - The node throws a retryable error (`"Task running"`); the manager retries with a 2s delay.
+  - Current retry policy: max 60 attempts (about 2 minutes).
+
+## Separated Mode (Dual-Speaker)
+
+In `MeetingTask.mode == separated`, the manager runs two single-track pipelines concurrently:
+
+- Speaker 1 (Local mic): `speaker1AudioPath` → `ossUrl` → `tingwuTaskId` → `speaker1Transcript`
+- Speaker 2 (Remote system audio): `speaker2AudioPath` → `speaker2OssUrl` → `speaker2TingwuTaskId` → `speaker2Transcript`
+
+Each track uses the same node chain with a `targetSpeaker` argument. Upload object keys become:
+
+- `"<ossPrefix><yyyy/MM/dd>/<recordingId>/speaker1.m4a"`
+- `"<ossPrefix><yyyy/MM/dd>/<recordingId>/speaker2.m4a"`
+
+### Alignment (Current)
+
+After both tracks finish (or partially finish), `MeetingPipelineManager.tryAlign()` currently produces a simple merged `task.transcript` by concatenating speaker transcripts with headers. `alignedConversation` remains reserved for future timestamp alignment.
+
+### Failure Tracking and Retry
+
+- Mixed mode uses `task.failedStep` and `task.lastError`.
+- Separated mode uses per-speaker fields:
+  - `task.speaker1Status` / `task.speaker2Status`
+  - `task.speaker1FailedStep` / `task.speaker2FailedStep`
+- UI retry entry points:
+  - `MeetingPipelineManager.retry()` retries from the recorded failure step.
+  - `MeetingPipelineManager.retry(speaker:)` retries only a specific speaker track.
 
 ## Tingwu Signing (ACS3-HMAC-SHA256)
 

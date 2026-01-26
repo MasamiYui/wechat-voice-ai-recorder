@@ -97,12 +97,35 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
             speaker2_transcript TEXT,
             aligned_conversation TEXT,
             speaker1_status VARCHAR(50),
-            speaker2_status VARCHAR(50)
+            speaker2_status VARCHAR(50),
+            speaker1_failed_step VARCHAR(50),
+            speaker2_failed_step VARCHAR(50)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """
         _ = try await pool.withConnection { conn in
             conn.query(sql)
         }.get()
+        
+        let existingColumns: Set<String> = try await pool.withConnection { conn in
+            conn.query(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'meeting_tasks'",
+                [MySQLData(string: self.config.database)]
+            ).flatMapThrowing { rows in
+                Set(rows.compactMap { $0.column("COLUMN_NAME")?.string })
+            }
+        }.get()
+        
+        if !existingColumns.contains("speaker1_failed_step") {
+            _ = try await pool.withConnection { conn in
+                conn.query("ALTER TABLE meeting_tasks ADD COLUMN speaker1_failed_step VARCHAR(50)")
+            }.get()
+        }
+        
+        if !existingColumns.contains("speaker2_failed_step") {
+            _ = try await pool.withConnection { conn in
+                conn.query("ALTER TABLE meeting_tasks ADD COLUMN speaker2_failed_step VARCHAR(50)")
+            }.get()
+        }
     }
     
     func fetchTasks() async throws -> [MeetingTask] {
@@ -129,9 +152,10 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
             biz_duration, output_mp3_path, last_successful_status, failed_step,
             retry_count, mode, speaker1_audio_path, speaker2_audio_path,
             speaker2_oss_url, speaker2_tingwu_task_id, speaker1_transcript,
-            speaker2_transcript, aligned_conversation, speaker1_status, speaker2_status
+            speaker2_transcript, aligned_conversation, speaker1_status, speaker2_status,
+            speaker1_failed_step, speaker2_failed_step
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         ) ON DUPLICATE KEY UPDATE
             recording_id=VALUES(recording_id), local_file_path=VALUES(local_file_path),
             oss_url=VALUES(oss_url), tingwu_task_id=VALUES(tingwu_task_id),
@@ -146,7 +170,9 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
             speaker2_oss_url=VALUES(speaker2_oss_url), speaker2_tingwu_task_id=VALUES(speaker2_tingwu_task_id),
             speaker1_transcript=VALUES(speaker1_transcript), speaker2_transcript=VALUES(speaker2_transcript),
             aligned_conversation=VALUES(aligned_conversation), speaker1_status=VALUES(speaker1_status),
-            speaker2_status=VALUES(speaker2_status);
+            speaker2_status=VALUES(speaker2_status),
+            speaker1_failed_step=VALUES(speaker1_failed_step),
+            speaker2_failed_step=VALUES(speaker2_failed_step);
         """
         
         _ = try await pool.withConnection { conn in
@@ -182,7 +208,9 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
                 task.speaker2Transcript.map { MySQLData(string: $0) } ?? .null,
                 task.alignedConversation.map { MySQLData(string: $0) } ?? .null,
                 task.speaker1Status.map { MySQLData(string: $0.rawValue) } ?? .null,
-                task.speaker2Status.map { MySQLData(string: $0.rawValue) } ?? .null
+                task.speaker2Status.map { MySQLData(string: $0.rawValue) } ?? .null,
+                task.speaker1FailedStep.map { MySQLData(string: $0.rawValue) } ?? .null,
+                task.speaker2FailedStep.map { MySQLData(string: $0.rawValue) } ?? .null
             ]
             return conn.query(sql, binds)
         }.get()
@@ -287,6 +315,15 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
         if let s2StatusRaw = row.column("speaker2_status")?.string,
            let s2Status = MeetingTaskStatus(rawValue: s2StatusRaw) {
             task.speaker2Status = s2Status
+        }
+        
+        if let s1FailedRaw = row.column("speaker1_failed_step")?.string,
+           let s1Failed = MeetingTaskStatus(rawValue: s1FailedRaw) {
+            task.speaker1FailedStep = s1Failed
+        }
+        if let s2FailedRaw = row.column("speaker2_failed_step")?.string,
+           let s2Failed = MeetingTaskStatus(rawValue: s2FailedRaw) {
+            task.speaker2FailedStep = s2Failed
         }
         
         return task

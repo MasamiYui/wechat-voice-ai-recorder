@@ -37,7 +37,7 @@ Table `meeting_tasks` stores the full task state:
 | `local_file_path` | TEXT | Local Original Merged Audio Path |
 | `oss_url` | TEXT | Public URL after Uploading |
 | `tingwu_task_id` | TEXT | Tingwu Task ID |
-| `status` | TEXT | Task Status (recorded, transcoding, uploading, polling, completed, failed) |
+| `status` | TEXT | Task Status (recorded, transcoding, transcoded, uploading, uploaded, created, polling, completed, failed) |
 | `title` | TEXT | Task Title |
 
 #### AI Results
@@ -64,6 +64,8 @@ Table `meeting_tasks` stores the full task state:
 | `aligned_conversation` | TEXT | Aligned Conversation Stream (JSON) |
 | `speaker1_status` | TEXT | Task Status for Speaker 1 |
 | `speaker2_status` | TEXT | Task Status for Speaker 2 |
+| `speaker1_failed_step` | TEXT | Failed Step for Speaker 1 (if any) |
+| `speaker2_failed_step` | TEXT | Failed Step for Speaker 2 (if any) |
 
 #### Retry and Error Handling
 
