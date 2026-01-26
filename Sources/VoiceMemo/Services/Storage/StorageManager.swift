@@ -48,6 +48,8 @@ class StorageManager: ObservableObject {
     private func switchProvider(to type: SettingsStore.StorageType) {
         switch type {
         case .local:
+            mysqlProvider?.shutdown()
+            mysqlProvider = nil
             currentProvider = sqliteProvider
         case .mysql:
             updateMySQLProvider()
@@ -59,6 +61,7 @@ class StorageManager: ObservableObject {
     
     func updateMySQLProvider() {
         guard let settings = settingsStore else { return }
+        mysqlProvider?.shutdown()
         let config = MySQLStorage.Config(
             host: settings.mysqlHost,
             port: settings.mysqlPort,
@@ -85,6 +88,7 @@ class StorageManager: ObservableObject {
             database: settings.mysqlDatabase
         )
         let provider = MySQLStorage(config: config)
+        defer { provider.shutdown() }
         // Try to create table to test connection and permissions
         try await provider.createTableIfNeeded()
     }

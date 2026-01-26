@@ -10,6 +10,7 @@ enum StorageError: Error {
 final class MySQLStorage: StorageProvider, @unchecked Sendable {
     private let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     private var pool: EventLoopGroupConnectionPool<MySQLConnectionSource>?
+    private var isShutdown = false
     
     struct Config: Sendable {
         let host: String
@@ -24,6 +25,10 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
     init(config: Config) {
         self.config = config
         setupPool()
+    }
+
+    deinit {
+        shutdown()
     }
     
     private func setupPool() {
@@ -41,6 +46,18 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
         
         let source = MySQLConnectionSource(configuration: mysqlConfig)
         self.pool = EventLoopGroupConnectionPool(source: source, on: group)
+    }
+
+    func shutdown() {
+        if isShutdown {
+            return
+        }
+        isShutdown = true
+        if let pool = pool {
+            self.pool = nil
+            try? pool.shutdown().wait()
+        }
+        try? group.syncShutdownGracefully()
     }
     
     func createTableIfNeeded() async throws {
@@ -275,4 +292,3 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
         return task
     }
 }
-
