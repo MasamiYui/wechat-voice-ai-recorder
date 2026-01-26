@@ -206,9 +206,10 @@ struct SettingsView: View {
                 }
                 .padding()
                 
-                TextEditor(text: $logText)
-                    .font(.body)
+                TextEditor(text: .constant(logText.isEmpty ? "No logs found.\n\nTip: Enable 'Verbose Logging' in General settings to see more details." : logText))
+                    .font(.system(.body, design: .monospaced))
                     .padding()
+                    .background(Color(nsColor: .textBackgroundColor))
             }
             .frame(width: 700, height: 500)
         }
