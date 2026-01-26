@@ -37,7 +37,7 @@
 | `local_file_path` | TEXT | 本地原始合成音频路径 |
 | `oss_url` | TEXT | 上传后的公网 URL |
 | `tingwu_task_id` | TEXT | 听悟任务 ID |
-| `status` | TEXT | 任务状态 (recorded, transcoding, uploading, polling, completed, failed) |
+| `status` | TEXT | 任务状态 (recorded, transcoding, transcoded, uploading, uploaded, created, polling, completed, failed) |
 | `title` | TEXT | 任务标题 |
 
 #### AI 处理结果
@@ -64,6 +64,8 @@
 | `aligned_conversation` | TEXT | 经过时间戳对齐后的对话流 (JSON) |
 | `speaker1_status` | TEXT | 说话人1的任务状态 |
 | `speaker2_status` | TEXT | 说话人2的任务状态 |
+| `speaker1_failed_step` | TEXT | 说话人1失败的流水线步骤（如有） |
+| `speaker2_failed_step` | TEXT | 说话人2失败的流水线步骤（如有） |
 
 #### 重试与错误处理
 

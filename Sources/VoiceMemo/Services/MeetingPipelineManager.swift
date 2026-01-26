@@ -129,8 +129,8 @@ class MeetingPipelineManager: ObservableObject {
     }
     
     private func runSeparatedPipeline(from step: MeetingTaskStatus = .transcoding) async {
-        async let t1 = runSingleTrack(from: step == .transcoding ? (task.speaker1Status == .completed ? .completed : step) : step, speaker: 1)
-        async let t2 = runSingleTrack(from: step == .transcoding ? (task.speaker2Status == .completed ? .completed : step) : step, speaker: 2)
+        async let t1: Void = runSingleTrack(from: step == .transcoding ? (task.speaker1Status == .completed ? .completed : step) : step, speaker: 1)
+        async let t2: Void = runSingleTrack(from: step == .transcoding ? (task.speaker2Status == .completed ? .completed : step) : step, speaker: 2)
         
         _ = await (t1, t2)
         await tryAlign()
@@ -295,6 +295,56 @@ class MeetingPipelineManager: ObservableObject {
                 self.save()
             }
         }
+    }
+    
+    func buildTranscriptText(from transcriptionData: [String: Any]) -> String {
+        func build(from data: [String: Any]) -> String? {
+            if let result = data["Result"] as? [String: Any],
+               let transcription = result["Transcription"] as? [String: Any] {
+                return build(from: transcription)
+            }
+            if let transcription = data["Transcription"] as? [String: Any] {
+                return build(from: transcription)
+            }
+            if let paragraphs = data["Paragraphs"] as? [[String: Any]] {
+                return paragraphs.compactMap { extractLine(from: $0) }.joined(separator: "\n")
+            }
+            if let sentences = data["Sentences"] as? [[String: Any]] {
+                return sentences.compactMap { extractLine(from: $0) }.joined(separator: "\n")
+            }
+            if let transcript = data["Transcript"] as? String {
+                return transcript
+            }
+            return nil
+        }
+        
+        func extractLine(from item: [String: Any]) -> String? {
+            let speaker = extractSpeaker(from: item)
+            let text = extractText(from: item)
+            guard !text.isEmpty else { return nil }
+            if let speaker {
+                return "\(speaker): \(text)"
+            }
+            return text
+        }
+        
+        func extractText(from item: [String: Any]) -> String {
+            if let text = item["Text"] as? String, !text.isEmpty { return text }
+            if let text = item["text"] as? String, !text.isEmpty { return text }
+            if let words = item["Words"] as? [[String: Any]] {
+                return words.compactMap { $0["Text"] as? String ?? $0["text"] as? String }.joined()
+            }
+            return ""
+        }
+        
+        func extractSpeaker(from item: [String: Any]) -> String? {
+            if let name = item["SpeakerName"] as? String, !name.isEmpty { return name }
+            if let name = item["Speaker"] as? String, !name.isEmpty { return name }
+            if let id = item["SpeakerId"] ?? item["SpeakerID"] { return "Speaker \(id)" }
+            return nil
+        }
+        
+        return build(from: transcriptionData) ?? ""
     }
 
     private func save() {

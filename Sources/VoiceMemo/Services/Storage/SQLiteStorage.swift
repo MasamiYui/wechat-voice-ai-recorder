@@ -44,6 +44,8 @@ class SQLiteStorage: StorageProvider {
     private let alignedConversation = Expression<String?>("aligned_conversation")
     private let speaker1Status = Expression<String?>("speaker1_status")
     private let speaker2Status = Expression<String?>("speaker2_status")
+    private let speaker1FailedStep = Expression<String?>("speaker1_failed_step")
+    private let speaker2FailedStep = Expression<String?>("speaker2_failed_step")
     
     init() {
         setupDatabase()
@@ -126,6 +128,8 @@ class SQLiteStorage: StorageProvider {
                 t.column(alignedConversation)
                 t.column(speaker1Status)
                 t.column(speaker2Status)
+                t.column(speaker1FailedStep)
+                t.column(speaker2FailedStep)
             })
             
             // Migration for existing tables - only add if they don't exist
@@ -151,6 +155,8 @@ class SQLiteStorage: StorageProvider {
             if !existingColumns.contains("aligned_conversation") { _ = try? db.run(tasks.addColumn(alignedConversation)) }
             if !existingColumns.contains("speaker1_status") { _ = try? db.run(tasks.addColumn(speaker1Status)) }
             if !existingColumns.contains("speaker2_status") { _ = try? db.run(tasks.addColumn(speaker2Status)) }
+            if !existingColumns.contains("speaker1_failed_step") { _ = try? db.run(tasks.addColumn(speaker1FailedStep)) }
+            if !existingColumns.contains("speaker2_failed_step") { _ = try? db.run(tasks.addColumn(speaker2FailedStep)) }
         } catch {
             print("Create table error: \(error)")
         }
@@ -208,7 +214,9 @@ class SQLiteStorage: StorageProvider {
             speaker2Transcript <- task.speaker2Transcript,
             alignedConversation <- task.alignedConversation,
             speaker1Status <- task.speaker1Status?.rawValue,
-            speaker2Status <- task.speaker2Status?.rawValue
+            speaker2Status <- task.speaker2Status?.rawValue,
+            speaker1FailedStep <- task.speaker1FailedStep?.rawValue,
+            speaker2FailedStep <- task.speaker2FailedStep?.rawValue
         )
         try db.run(insert)
     }
@@ -270,6 +278,12 @@ class SQLiteStorage: StorageProvider {
             }
             if let s2StatusRaw = row[speaker2Status], let s2StatusEnum = MeetingTaskStatus(rawValue: s2StatusRaw) {
                 task.speaker2Status = s2StatusEnum
+            }
+            if let s1FailedRaw = row[speaker1FailedStep], let s1FailedEnum = MeetingTaskStatus(rawValue: s1FailedRaw) {
+                task.speaker1FailedStep = s1FailedEnum
+            }
+            if let s2FailedRaw = row[speaker2FailedStep], let s2FailedEnum = MeetingTaskStatus(rawValue: s2FailedRaw) {
+                task.speaker2FailedStep = s2FailedEnum
             }
             
             results.append(task)
@@ -349,6 +363,12 @@ class SQLiteStorage: StorageProvider {
         }
         if let s2StatusRaw = row[speaker2Status], let s2StatusEnum = MeetingTaskStatus(rawValue: s2StatusRaw) {
             task.speaker2Status = s2StatusEnum
+        }
+        if let s1FailedRaw = row[speaker1FailedStep], let s1FailedEnum = MeetingTaskStatus(rawValue: s1FailedRaw) {
+            task.speaker1FailedStep = s1FailedEnum
+        }
+        if let s2FailedRaw = row[speaker2FailedStep], let s2FailedEnum = MeetingTaskStatus(rawValue: s2FailedRaw) {
+            task.speaker2FailedStep = s2FailedEnum
         }
         
         return task

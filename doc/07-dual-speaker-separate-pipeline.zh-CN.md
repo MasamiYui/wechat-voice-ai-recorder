@@ -33,29 +33,25 @@ flowchart TD
     H --> I[保存结果]
 ```
 
-## 关键需求约束（已确认）
+## 关键需求约束（当前实现）
 
 - 输入：系统录音双轨，强制双通道。
 - 通道映射（当前实现）：speaker1=麦克风（本地），speaker2=系统音频（远端）。
-- 时间基准：采样帧时间戳。
-- 对齐策略：允许同时间段冲突并标注重叠。
-- 摘要策略：区分 speaker 的行动项；保留单路纪要备份。
-- 失败策略：双路某一路失败时输出部分。
-- 版本/流水线标识：需要。
+- 对齐与纪要：暂未做时间轴对齐与按 speaker 的纪要拆分；当前仅保证双路原始转写产出并在 UI 合并展示。
+- 失败策略：双路任一路失败时保留已完成路的结果，并支持按 speaker 重试。
 
-## 输出优先级与降级策略
+## 输出优先级与降级策略（规划）
 
 ### 输出层级
 
-1. 原始双路转写（基础输出）
-2. 对齐对话视图（增强输出）
-3. 会议纪要（智能输出）
+1. 原始双路转写（当前基础输出）
+2. 对齐对话视图（规划增强输出）
+3. 会议纪要（规划智能输出）
 
 ### 优先级规则
 
 - 任何情况下优先保证原始转写产出。
-- 对齐视图允许降级为单路时间线并标注 incomplete。
-- 纪要允许降级为单路纪要，并标注来源。
+- 当前版本仅保证原始转写与合并展示；对齐与纪要相关规则作为后续实现目标保留。
 
 ## 核心类型与职责（映射到文件/类）
 
@@ -71,7 +67,7 @@ flowchart TD
 
 - 模式枚举：`MeetingMode`（`mixed` / `separated`）
 - 分离模式流水线：`MeetingPipelineManager` 内按 `task.mode` 分支执行双路处理
-- 结果字段：`MeetingTask` 已包含 speaker1/2 音频路径、转写、状态与对齐字段（`alignedConversation` 预留）
+- 结果字段：`MeetingTask` 已包含 speaker1/2 音频路径、转写、状态、失败 step 字段；`alignedConversation` 仍为预留字段
 
 ## 数据模型与存储
 
@@ -79,8 +75,11 @@ flowchart TD
 
 - `mode`
 - `speaker1AudioPath` / `speaker2AudioPath`
+- `ossUrl` / `speaker2OssUrl`
+- `tingwuTaskId` / `speaker2TingwuTaskId`
 - `speaker1Transcript` / `speaker2Transcript`
 - `speaker1Status` / `speaker2Status`
+- `speaker1FailedStep` / `speaker2FailedStep`
 - `alignedConversation`
 
 ### 存储层变更点（SQLiteStorage/MySQLStorage）
@@ -95,30 +94,26 @@ flowchart TD
    - 通道映射为固定策略，无需额外配置。
 
 2. 分路识别
-   - 以采样帧时间为基准生成时间戳。
-   - speaker1 与 speaker2 两条 pipeline 并行执行。
+   - speaker1 与 speaker2 两条 pipeline 并行执行（每路独立跑 Transcode → Upload → CreateTask → Poll）。
 
 3. 结果落地
    - 单路成功立即写入对应 transcript。
    - 单路失败标记 `speakerXStatus = failed`。
+   - 额外写入 `speakerXFailedStep` 便于按 speaker 精准重试。
 
-4. 对齐
-   - 仅当任一路成功时尝试对齐。
-   - 冲突片段标记 `overlap = true`。
-   - 仅单路成功时生成单路时间线。
+4. 合并展示（当前实现）
+   - 仅当任一路成功时合并展示。
+   - 当前仅将两路 transcript 按 speaker 标题拼接写入 `task.transcript`。
+   - `alignedConversation` 暂不填充，保留给后续时间轴对齐实现。
 
-5. 纪要
-   - 优先使用对齐对话。
-   - 单路降级生成 `summaryFallback`。
-   - 行动项必须区分 speaker。
+5. 纪要（当前实现）
+   - 分离模式暂不生成 `summary` / `keyPoints` / `actionItems`（这些能力仍主要在混合模式中使用）。
 
 ## 错误处理
 
-- 任何失败均写入 `completionStatus`：
-  - `complete`：双路成功
-  - `partial`：单路成功
-  - `failed`：双路失败
-- UI 显示“仅一路成功”提示，依据 `completionStatus`。
+- 任一路失败时，会写入 `task.lastError`，并将全局 `task.status` 标记为 `failed`。
+- 已成功路的转写结果会保留在 `speakerXTranscript` 中，可用于“部分完成”的展示与导出。
+- UI 会展示每路 speaker 的状态与失败 step，并支持按 speaker 重试。
 
 ## 安全与隐私注意事项
 
@@ -127,9 +122,8 @@ flowchart TD
 
 ## 运行与配置说明
 
-- 新增设置项：识别模式选择与通道映射入口。
 - 仅当双通道输入可用时允许选择分离模式。
-- 新增流水线版本号，用于结果兼容与回放解释。
+- 当前通道映射为固定策略，无需额外配置入口。
 
 ## 验证方式（不写代码的验收清单）
 
