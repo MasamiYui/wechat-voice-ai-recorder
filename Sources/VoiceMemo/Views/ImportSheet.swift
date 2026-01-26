@@ -12,6 +12,10 @@ struct ImportSheet: View {
     
     var onImport: (MeetingMode, [URL]) -> Void
     
+    init(onImport: @escaping (MeetingMode, [URL]) -> Void) {
+        self.onImport = onImport
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             Text("Import Audio")
