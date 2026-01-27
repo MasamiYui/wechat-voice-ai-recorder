@@ -40,11 +40,12 @@ struct PipelineView: View {
             // Pipeline Steps
             HStack(spacing: 0) {
                 // Record Step (Not interactive for rerun)
-                StepView(title: "Record", icon: "mic.fill", isActive: true, isCompleted: true, isFailed: false)
-                    .opacity(1.0)
+                StepView(title: "Record", icon: "mic", isActive: false, isCompleted: true, isFailed: false)
                 
                 ArrowView()
                 
+                stepButton(title: "Upload Raw", icon: "arrow.up.doc", step: .uploadingOriginal)
+                ArrowView()
                 stepButton(title: "Transcode", icon: "waveform", step: .transcoding)
                 ArrowView()
                 stepButton(title: "Upload", icon: "icloud.and.arrow.up", step: .uploading)
@@ -107,42 +108,51 @@ struct PipelineView: View {
     
     // MARK: - Helpers
     
+    @ViewBuilder
     private func stepButton(title: String, icon: String, step: MeetingTaskStatus) -> some View {
         let canRerun = manager.task.status == .completed || manager.task.status == .failed
         
-        return Button(action: {
-            if canRerun {
+        if canRerun {
+            Button(action: {
                 stepToRerun = step
                 showRerunAlert = true
+            }) {
+                StepView(
+                    title: title,
+                    icon: icon,
+                    isActive: isStepActive(step),
+                    isCompleted: isAfter(step),
+                    isFailed: isFailed(step)
+                )
+                .contentShape(Rectangle()) // Make sure the whole area is clickable
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.accentColor, lineWidth: 0) // Placeholder for hover effect if needed
+                )
             }
-        }) {
+            .buttonStyle(.plain)
+            .onHover { inside in
+                if inside {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .help("Click to rerun this step")
+        } else {
             StepView(
                 title: title,
                 icon: icon,
-                isActive: manager.task.status == step,
+                isActive: isStepActive(step),
                 isCompleted: isAfter(step),
                 isFailed: isFailed(step)
             )
-            .contentShape(Rectangle()) // Make sure the whole area is clickable
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.accentColor, lineWidth: canRerun ? 0 : 0) // Placeholder for hover effect if needed
-            )
         }
-        .buttonStyle(.plain)
-        .disabled(!canRerun)
-        .onHover { inside in
-            if canRerun && inside {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
-        .help(canRerun ? "Click to rerun this step" : "")
     }
     
     private func stepTitle(_ step: MeetingTaskStatus) -> String {
         switch step {
+        case .uploadingOriginal: return "Upload Raw"
         case .transcoding: return "Transcode"
         case .uploading: return "Upload"
         case .created: return "Create Task"
@@ -154,6 +164,7 @@ struct PipelineView: View {
     private func rerun(_ step: MeetingTaskStatus) {
         Task {
             switch step {
+            case .uploadingOriginal: await manager.uploadOriginal()
             case .transcoding: await manager.transcode(force: true)
             case .uploading: await manager.upload()
             case .created: await manager.createTask()
@@ -173,7 +184,7 @@ struct PipelineView: View {
     }
     
     private func isAfter(_ status: MeetingTaskStatus) -> Bool {
-        let order: [MeetingTaskStatus] = [.recorded, .transcoding, .transcoded, .uploading, .uploaded, .created, .polling, .completed]
+        let order: [MeetingTaskStatus] = [.recorded, .uploadingOriginal, .uploadedOriginal, .transcoding, .transcoded, .uploading, .uploaded, .created, .polling, .completed]
         
         let currentStatus: MeetingTaskStatus
         if manager.task.status == .failed {
@@ -186,10 +197,28 @@ struct PipelineView: View {
             currentStatus = manager.task.status
         }
         
+        // Special case: .created status means Create Task step is completed
+        if currentStatus == .created && status == .created { return true }
+        
         guard let currentIndex = order.firstIndex(of: currentStatus),
               let targetIndex = order.firstIndex(of: status) else { return false }
         
         return currentIndex > targetIndex
+    }
+    
+    private func isStepActive(_ step: MeetingTaskStatus) -> Bool {
+        // 1. Exactly matching status (Running)
+        if manager.task.status == step { return true }
+        
+        // 2. Waiting for next step (Manual mode readiness)
+        switch (manager.task.status, step) {
+        case (.recorded, .uploadingOriginal): return true
+        case (.uploadedOriginal, .transcoding): return true
+        case (.transcoded, .uploading): return true
+        case (.uploaded, .created): return true
+        case (.created, .polling): return true
+        default: return false
+        }
     }
     
     private func isFailed(_ step: MeetingTaskStatus) -> Bool {
@@ -201,8 +230,8 @@ struct PipelineView: View {
     private var actionButton: some View {
         switch manager.task.status {
         case .recorded:
-            Button("Transcode Audio") {
-                Task { await manager.transcode() }
+            Button("Start Processing") {
+                Task { await manager.uploadOriginal() }
             }
             .buttonStyle(.borderedProminent)
             
@@ -248,6 +277,15 @@ struct PipelineView: View {
                 .padding(.top, 4)
             }
             
+        case .uploadingOriginal:
+            Text("Uploading Original...")
+            
+        case .uploadedOriginal:
+            Button("Start Transcode") {
+                Task { await manager.transcode() }
+            }
+            .buttonStyle(.borderedProminent)
+            
         case .transcoding:
             Text("Transcoding...")
             
@@ -267,7 +305,10 @@ struct PipelineView: View {
              .buttonStyle(.borderedProminent)
              
         case .created:
-             Text("Creating Task...")
+             Button("Start Polling") {
+                 Task { await manager.pollStatus() }
+             }
+             .buttonStyle(.bordered)
              
         case .polling:
              Button("Refresh Status") {
@@ -390,15 +431,36 @@ struct StepView: View {
         VStack {
             Image(systemName: icon)
             .font(.title2)
-            .foregroundColor(isFailed ? .red : (isCompleted ? .green : (isActive ? .blue : .gray)))
+            .foregroundColor(foregroundOrigin)
             .frame(width: 40, height: 40)
-            .background(Circle().fill(isFailed ? Color.red.opacity(0.1) : Color.gray.opacity(0.1)))
+            .background(Circle().fill(backgroundOrigin))
             
             Text(title)
                 .font(.caption)
-                .foregroundColor(isFailed ? .red : (isCompleted ? .primary : .secondary))
+                .foregroundColor(textOrigin)
         }
         .frame(width: 80)
+    }
+    
+    private var foregroundOrigin: Color {
+        if isFailed { return .red }
+        if isCompleted { return .green }
+        if isActive { return .blue }
+        return .gray
+    }
+    
+    private var backgroundOrigin: Color {
+        if isFailed { return Color.red.opacity(0.1) }
+        if isCompleted { return Color.green.opacity(0.1) }
+        if isActive { return Color.blue.opacity(0.1) }
+        return Color.gray.opacity(0.1)
+    }
+    
+    private var textOrigin: Color {
+        if isFailed { return .red }
+        if isCompleted { return .primary }
+        if isActive { return .blue }
+        return .secondary
     }
 }
 
