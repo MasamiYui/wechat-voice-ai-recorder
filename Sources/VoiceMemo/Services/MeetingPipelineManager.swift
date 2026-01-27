@@ -21,18 +21,17 @@ class MeetingPipelineManager: ObservableObject {
     // MARK: - Public Actions
     
     func start() async {
-        if task.mode == .mixed {
-            await runMixedPipeline()
-        } else {
-            await runSeparatedPipeline()
-        }
+        await uploadOriginal()
     }
     
     func transcode(force: Bool = false) async {
-        if !force && task.status != .recorded && task.status != .failed { return }
+        if !force && task.status != .uploadedOriginal && task.status != .failed { return }
         
-        // Decide start point based on mode
-        await start()
+        if task.mode == .mixed {
+            await runPipeline(from: .transcoding, targetSpeaker: nil)
+        } else {
+            await runSeparatedPipeline(from: .transcoding)
+        }
     }
     
     // Legacy support for View buttons calling specific steps
@@ -41,9 +40,15 @@ class MeetingPipelineManager: ObservableObject {
         if task.mode == .mixed {
             await runPipeline(from: .uploading, targetSpeaker: nil)
         } else {
-            // If upload is called manually, it implies a retry or manual trigger
-            // We should check which one needs upload
-             await runSeparatedPipeline(from: .uploading)
+            await runSeparatedPipeline(from: .uploading)
+        }
+    }
+    
+    func uploadOriginal() async {
+        if task.mode == .mixed {
+            await runPipeline(from: .uploadingOriginal, targetSpeaker: nil)
+        } else {
+            await runSeparatedPipeline(from: .uploadingOriginal)
         }
     }
     
@@ -126,11 +131,10 @@ class MeetingPipelineManager: ObservableObject {
     // MARK: - Pipeline Execution
     
     private func runMixedPipeline() async {
-        // Full chain
-        await runPipeline(from: .transcoding, targetSpeaker: nil)
+        await runPipeline(from: .recorded, targetSpeaker: nil)
     }
     
-    private func runSeparatedPipeline(from step: MeetingTaskStatus = .transcoding) async {
+    private func runSeparatedPipeline(from step: MeetingTaskStatus = .recorded) async {
         async let t1: Void = runSingleTrack(from: step == .transcoding ? (task.speaker1Status == .completed ? .completed : step) : step, speaker: 1)
         async let t2: Void = runSingleTrack(from: step == .transcoding ? (task.speaker2Status == .completed ? .completed : step) : step, speaker: 2)
         
@@ -150,28 +154,14 @@ class MeetingPipelineManager: ObservableObject {
         // Build chain based on startStep
         if startStep == .recorded || startStep == .failed {
             nodes.append(UploadOriginalNode(targetSpeaker: speaker))
-            nodes.append(TranscodeNode(targetSpeaker: speaker))
-            nodes.append(UploadNode(targetSpeaker: speaker))
-            nodes.append(CreateTaskNode(targetSpeaker: speaker))
-            nodes.append(PollingNode(targetSpeaker: speaker))
         } else if startStep == .uploadingOriginal {
             nodes.append(UploadOriginalNode(targetSpeaker: speaker))
-            nodes.append(TranscodeNode(targetSpeaker: speaker))
-            nodes.append(UploadNode(targetSpeaker: speaker))
-            nodes.append(CreateTaskNode(targetSpeaker: speaker))
-            nodes.append(PollingNode(targetSpeaker: speaker))
         } else if startStep == .uploadedOriginal || startStep == .transcoding {
             nodes.append(TranscodeNode(targetSpeaker: speaker))
-            nodes.append(UploadNode(targetSpeaker: speaker))
-            nodes.append(CreateTaskNode(targetSpeaker: speaker))
-            nodes.append(PollingNode(targetSpeaker: speaker))
         } else if startStep == .transcoded || startStep == .uploading {
             nodes.append(UploadNode(targetSpeaker: speaker))
-            nodes.append(CreateTaskNode(targetSpeaker: speaker))
-            nodes.append(PollingNode(targetSpeaker: speaker))
         } else if startStep == .uploaded || startStep == .created {
             nodes.append(CreateTaskNode(targetSpeaker: speaker))
-            nodes.append(PollingNode(targetSpeaker: speaker))
         } else if startStep == .polling {
             nodes.append(PollingNode(targetSpeaker: speaker))
         }
@@ -185,28 +175,14 @@ class MeetingPipelineManager: ObservableObject {
         // Logic for mixed mode mainly
         if startStep == .recorded || startStep == .failed {
             nodes.append(UploadOriginalNode(targetSpeaker: targetSpeaker))
-            nodes.append(TranscodeNode(targetSpeaker: targetSpeaker))
-            nodes.append(UploadNode(targetSpeaker: targetSpeaker))
-            nodes.append(CreateTaskNode(targetSpeaker: targetSpeaker))
-            nodes.append(PollingNode(targetSpeaker: targetSpeaker))
         } else if startStep == .uploadingOriginal {
             nodes.append(UploadOriginalNode(targetSpeaker: targetSpeaker))
-            nodes.append(TranscodeNode(targetSpeaker: targetSpeaker))
-            nodes.append(UploadNode(targetSpeaker: targetSpeaker))
-            nodes.append(CreateTaskNode(targetSpeaker: targetSpeaker))
-            nodes.append(PollingNode(targetSpeaker: targetSpeaker))
         } else if startStep == .uploadedOriginal || startStep == .transcoding {
             nodes.append(TranscodeNode(targetSpeaker: targetSpeaker))
-            nodes.append(UploadNode(targetSpeaker: targetSpeaker))
-            nodes.append(CreateTaskNode(targetSpeaker: targetSpeaker))
-            nodes.append(PollingNode(targetSpeaker: targetSpeaker))
         } else if startStep == .transcoded || startStep == .uploading {
             nodes.append(UploadNode(targetSpeaker: targetSpeaker))
-            nodes.append(CreateTaskNode(targetSpeaker: targetSpeaker))
-            nodes.append(PollingNode(targetSpeaker: targetSpeaker))
         } else if startStep == .uploaded || startStep == .created {
             nodes.append(CreateTaskNode(targetSpeaker: targetSpeaker))
-            nodes.append(PollingNode(targetSpeaker: targetSpeaker))
         } else if startStep == .polling {
             nodes.append(PollingNode(targetSpeaker: targetSpeaker))
         }
@@ -239,6 +215,20 @@ class MeetingPipelineManager: ObservableObject {
                             else { self.task.speaker2Status = node.step == .polling ? .completed : node.step }
                         }
                     }
+                    
+                    let postStatus: MeetingTaskStatus? = {
+                        switch node.step {
+                        case .uploadingOriginal: return .uploadedOriginal
+                        case .transcoding: return .transcoded
+                        case .uploading: return .uploaded
+                        case .created: return .created
+                        case .polling, .recorded, .failed, .completed, .uploadedOriginal, .transcoded, .uploaded: return nil
+                        }
+                    }()
+                    if let postStatus {
+                        await updateStatus(postStatus, speaker: speaker, isFailed: false)
+                    }
+                    
                     self.save()
                     success = true
                     
@@ -248,14 +238,14 @@ class MeetingPipelineManager: ObservableObject {
                         // Polling: wait and retry
                         retryCount += 1
                         if retryCount > maxRetries {
-                            await updateStatus(.failed, speaker: speaker, step: node.step, error: "Polling timeout")
+                            await updateStatus(.failed, speaker: speaker, step: node.step, error: "Polling timeout", isFailed: true)
                             return
                         }
                         try? await Task.sleep(nanoseconds: 2 * 1_000_000_000) // 2s
                         continue
                     } else {
                         // Real failure
-                        await updateStatus(.failed, speaker: speaker, step: node.step, error: error.localizedDescription)
+                        await updateStatus(.failed, speaker: speaker, step: node.step, error: error.localizedDescription, isFailed: true)
                         return
                     }
                 }
@@ -263,9 +253,6 @@ class MeetingPipelineManager: ObservableObject {
         }
         
         // Chain completed
-        if speaker == nil {
-            await updateStatus(.completed, speaker: nil, isFailed: false)
-        }
         await MainActor.run { self.isProcessing = false }
     }
     
