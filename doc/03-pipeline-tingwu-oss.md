@@ -43,7 +43,7 @@ This keeps the UI-facing API stable (e.g. `transcode()`, `upload()`) while allow
   - `"<ossPrefix><yyyy/MM/dd>/<recordingId>/original.<ext>"`
 - Updates:
   - `task.originalFileUrl`
-  - `task.status`: `recorded` → `uploadingOriginal` → `uploadedOriginal`
+  - `task.status`: `recorded` → `uploadingRaw` → `uploadedRaw`
 
 ## Transcode
 

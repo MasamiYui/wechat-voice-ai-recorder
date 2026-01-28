@@ -38,7 +38,7 @@
 | `local_file_path` | TEXT | 本地原始合成音频路径 |
 | `oss_url` | TEXT | 上传后的公网 URL (混合/转码后) |
 | `tingwu_task_id` | TEXT | 听悟任务 ID |
-| `status` | TEXT | 任务状态 (recorded, uploadingOriginal, uploadedOriginal, transcoding, transcoded, uploading, uploaded, created, polling, completed, failed) |
+| `status` | TEXT | 任务状态 (recorded, uploadingRaw, uploadedRaw, transcoding, transcoded, uploading, uploaded, created, polling, completed, failed) |
 | `title` | TEXT | 任务标题 |
 
 #### AI 处理结果

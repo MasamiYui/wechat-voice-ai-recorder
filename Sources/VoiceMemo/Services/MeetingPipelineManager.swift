@@ -25,7 +25,7 @@ class MeetingPipelineManager: ObservableObject {
     }
     
     func transcode(force: Bool = false) async {
-        if !force && task.status != .uploadedOriginal && task.status != .failed { return }
+        if !force && task.status != .uploadedRaw && task.status != .failed { return }
         
         if task.mode == .mixed {
             await runPipeline(from: .transcoding, targetSpeaker: nil)
@@ -46,9 +46,9 @@ class MeetingPipelineManager: ObservableObject {
     
     func uploadOriginal() async {
         if task.mode == .mixed {
-            await runPipeline(from: .uploadingOriginal, targetSpeaker: nil)
+            await runPipeline(from: .uploadingRaw, targetSpeaker: nil)
         } else {
-            await runSeparatedPipeline(from: .uploadingOriginal)
+            await runSeparatedPipeline(from: .uploadingRaw)
         }
     }
     
@@ -154,9 +154,9 @@ class MeetingPipelineManager: ObservableObject {
         // Build chain based on startStep
         if startStep == .recorded || startStep == .failed {
             nodes.append(UploadOriginalNode(targetSpeaker: speaker))
-        } else if startStep == .uploadingOriginal {
+        } else if startStep == .uploadingRaw {
             nodes.append(UploadOriginalNode(targetSpeaker: speaker))
-        } else if startStep == .uploadedOriginal || startStep == .transcoding {
+        } else if startStep == .uploadedRaw || startStep == .transcoding {
             nodes.append(TranscodeNode(targetSpeaker: speaker))
         } else if startStep == .transcoded || startStep == .uploading {
             nodes.append(UploadNode(targetSpeaker: speaker))
@@ -175,9 +175,9 @@ class MeetingPipelineManager: ObservableObject {
         // Logic for mixed mode mainly
         if startStep == .recorded || startStep == .failed {
             nodes.append(UploadOriginalNode(targetSpeaker: targetSpeaker))
-        } else if startStep == .uploadingOriginal {
+        } else if startStep == .uploadingRaw {
             nodes.append(UploadOriginalNode(targetSpeaker: targetSpeaker))
-        } else if startStep == .uploadedOriginal || startStep == .transcoding {
+        } else if startStep == .uploadedRaw || startStep == .transcoding {
             nodes.append(TranscodeNode(targetSpeaker: targetSpeaker))
         } else if startStep == .transcoded || startStep == .uploading {
             nodes.append(UploadNode(targetSpeaker: targetSpeaker))
@@ -218,11 +218,11 @@ class MeetingPipelineManager: ObservableObject {
                     
                     let postStatus: MeetingTaskStatus? = {
                         switch node.step {
-                        case .uploadingOriginal: return .uploadedOriginal
+                        case .uploadingRaw: return .uploadedRaw
                         case .transcoding: return .transcoded
                         case .uploading: return .uploaded
                         case .created: return .created
-                        case .polling, .recorded, .failed, .completed, .uploadedOriginal, .transcoded, .uploaded: return nil
+                        case .polling, .recorded, .failed, .completed, .uploadedRaw, .transcoded, .uploaded: return nil
                         }
                     }()
                     if let postStatus {
@@ -390,7 +390,7 @@ protocol PipelineNode {
 
 // 0. Upload Original Node
 class UploadOriginalNode: PipelineNode {
-    let step: MeetingTaskStatus = .uploadingOriginal
+    let step: MeetingTaskStatus = .uploadingRaw
     let targetSpeaker: Int?
     
     init(targetSpeaker: Int? = nil) {

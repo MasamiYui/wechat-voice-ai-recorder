@@ -43,7 +43,7 @@
   - `"<ossPrefix><yyyy/MM/dd>/<recordingId>/original.<ext>"`
 - 更新：
   - `task.originalFileUrl`
-  - `task.status`：`recorded` → `uploadingOriginal` → `uploadedOriginal`
+  - `task.status`：`recorded` → `uploadingRaw` → `uploadedRaw`
 
 ## 转码
 

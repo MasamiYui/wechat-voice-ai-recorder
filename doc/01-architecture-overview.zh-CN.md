@@ -79,7 +79,7 @@ flowchart TD
 定义在 `Models/MeetingTask.swift`：
 
 - `recorded`：本地合成完成并创建任务
-- `uploadingOriginal` → `uploadedOriginal`：上传原始高保真音频到 OSS（备份）
+- `uploadingRaw` → `uploadedRaw`：上传原始高保真音频到 OSS（备份）
 - `transcoding` → `transcoded`：转码为 48kHz 混合音频
 - `uploading` → `uploaded`：上传转码后的音频到 OSS
 - `created`：流水线中用于"创建任务中"的临时状态

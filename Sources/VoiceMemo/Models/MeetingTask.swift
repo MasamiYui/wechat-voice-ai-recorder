@@ -2,8 +2,8 @@ import Foundation
 
 enum MeetingTaskStatus: String, Codable, CaseIterable, Hashable {
     case recorded      // 录音完成
-    case uploadingOriginal // 上传原始文件中
-    case uploadedOriginal  // 原始文件上传完成
+    case uploadingRaw  // 上传原始文件中 (was uploadingOriginal)
+    case uploadedRaw   // 原始文件上传完成 (was uploadedOriginal)
     case transcoding   // 转码中
     case transcoded    // 转码完成
     case uploading     // 上传中
@@ -12,6 +12,36 @@ enum MeetingTaskStatus: String, Codable, CaseIterable, Hashable {
     case polling       // 轮询中
     case completed     // 完成
     case failed        // 失败
+    
+    // Custom decoding to handle legacy values
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        if let status = MeetingTaskStatus(rawValue: rawValue) {
+            self = status
+        } else {
+            // Backward compatibility
+            switch rawValue {
+            case "uploadingOriginal": self = .uploadingRaw
+            case "uploadedOriginal": self = .uploadedRaw
+            default:
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid status: \(rawValue)")
+            }
+        }
+    }
+    
+    // Helper for database reading compatibility
+    static func from(rawValue: String) -> MeetingTaskStatus? {
+        if let status = MeetingTaskStatus(rawValue: rawValue) {
+            return status
+        }
+        // Backward compatibility
+        switch rawValue {
+        case "uploadingOriginal": return .uploadingRaw
+        case "uploadedOriginal": return .uploadedRaw
+        default: return nil
+        }
+    }
 }
 
 enum MeetingMode: String, Codable, Hashable {

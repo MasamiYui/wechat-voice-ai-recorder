@@ -38,7 +38,7 @@ Table `meeting_tasks` stores the full task state:
 | `local_file_path` | TEXT | Local Original Merged Audio Path |
 | `oss_url` | TEXT | Public URL after Uploading (Mixed/Transcoded) |
 | `tingwu_task_id` | TEXT | Tingwu Task ID |
-| `status` | TEXT | Task Status (recorded, uploadingOriginal, uploadedOriginal, transcoding, transcoded, uploading, uploaded, created, polling, completed, failed) |
+| `status` | TEXT | Task Status (recorded, uploadingRaw, uploadedRaw, transcoding, transcoded, uploading, uploaded, created, polling, completed, failed) |
 | `title` | TEXT | Task Title |
 
 #### AI Results

@@ -247,7 +247,7 @@ class SQLiteStorage: StorageProvider {
             task.createdAt = row[createdAt]
             task.ossUrl = row[ossUrl]
             task.tingwuTaskId = row[tingwuTaskId]
-            if let statusEnum = MeetingTaskStatus(rawValue: row[status]) {
+            if let statusEnum = MeetingTaskStatus.from(rawValue: row[status]) {
                 task.status = statusEnum
             }
             task.rawResponse = row[rawResponse]
@@ -262,10 +262,10 @@ class SQLiteStorage: StorageProvider {
             task.bizDuration = row[bizDuration]
             task.outputMp3Path = row[outputMp3Path]
             
-            if let successStatusRaw = row[lastSuccessfulStatus], let successStatus = MeetingTaskStatus(rawValue: successStatusRaw) {
+            if let successStatusRaw = row[lastSuccessfulStatus], let successStatus = MeetingTaskStatus.from(rawValue: successStatusRaw) {
                 task.lastSuccessfulStatus = successStatus
             }
-            if let failedStatusRaw = row[failedStep], let failedStepEnum = MeetingTaskStatus(rawValue: failedStatusRaw) {
+            if let failedStatusRaw = row[failedStep], let failedStepEnum = MeetingTaskStatus.from(rawValue: failedStatusRaw) {
                 task.failedStep = failedStepEnum
             }
             task.retryCount = row[retryCount]
@@ -283,16 +283,16 @@ class SQLiteStorage: StorageProvider {
             task.originalOssUrl = row[originalOssUrl]
             task.speaker2OriginalOssUrl = row[speaker2OriginalOssUrl]
             
-            if let s1StatusRaw = row[speaker1Status], let s1StatusEnum = MeetingTaskStatus(rawValue: s1StatusRaw) {
+            if let s1StatusRaw = row[speaker1Status], let s1StatusEnum = MeetingTaskStatus.from(rawValue: s1StatusRaw) {
                 task.speaker1Status = s1StatusEnum
             }
-            if let s2StatusRaw = row[speaker2Status], let s2StatusEnum = MeetingTaskStatus(rawValue: s2StatusRaw) {
+            if let s2StatusRaw = row[speaker2Status], let s2StatusEnum = MeetingTaskStatus.from(rawValue: s2StatusRaw) {
                 task.speaker2Status = s2StatusEnum
             }
-            if let s1FailedRaw = row[speaker1FailedStep], let s1FailedEnum = MeetingTaskStatus(rawValue: s1FailedRaw) {
+            if let s1FailedRaw = row[speaker1FailedStep], let s1FailedEnum = MeetingTaskStatus.from(rawValue: s1FailedRaw) {
                 task.speaker1FailedStep = s1FailedEnum
             }
-            if let s2FailedRaw = row[speaker2FailedStep], let s2FailedEnum = MeetingTaskStatus(rawValue: s2FailedRaw) {
+            if let s2FailedRaw = row[speaker2FailedStep], let s2FailedEnum = MeetingTaskStatus.from(rawValue: s2FailedRaw) {
                 task.speaker2FailedStep = s2FailedEnum
             }
             
@@ -332,7 +332,7 @@ class SQLiteStorage: StorageProvider {
         task.createdAt = row[createdAt]
         task.ossUrl = row[ossUrl]
         task.tingwuTaskId = row[tingwuTaskId]
-        if let statusEnum = MeetingTaskStatus(rawValue: row[status]) {
+        if let statusEnum = MeetingTaskStatus.from(rawValue: row[status]) {
             task.status = statusEnum
         }
         // ... (rest of mapping) ...
@@ -349,10 +349,10 @@ class SQLiteStorage: StorageProvider {
         task.bizDuration = row[bizDuration]
         task.outputMp3Path = row[outputMp3Path]
         
-        if let successStatusRaw = row[lastSuccessfulStatus], let successStatus = MeetingTaskStatus(rawValue: successStatusRaw) {
+        if let successStatusRaw = row[lastSuccessfulStatus], let successStatus = MeetingTaskStatus.from(rawValue: successStatusRaw) {
             task.lastSuccessfulStatus = successStatus
         }
-        if let failedStatusRaw = row[failedStep], let failedStepEnum = MeetingTaskStatus(rawValue: failedStatusRaw) {
+        if let failedStatusRaw = row[failedStep], let failedStepEnum = MeetingTaskStatus.from(rawValue: failedStatusRaw) {
             task.failedStep = failedStepEnum
         }
         task.retryCount = row[retryCount]
@@ -370,16 +370,16 @@ class SQLiteStorage: StorageProvider {
         task.originalOssUrl = row[originalOssUrl]
         task.speaker2OriginalOssUrl = row[speaker2OriginalOssUrl]
         
-        if let s1StatusRaw = row[speaker1Status], let s1StatusEnum = MeetingTaskStatus(rawValue: s1StatusRaw) {
+        if let s1StatusRaw = row[speaker1Status], let s1StatusEnum = MeetingTaskStatus.from(rawValue: s1StatusRaw) {
             task.speaker1Status = s1StatusEnum
         }
-        if let s2StatusRaw = row[speaker2Status], let s2StatusEnum = MeetingTaskStatus(rawValue: s2StatusRaw) {
+        if let s2StatusRaw = row[speaker2Status], let s2StatusEnum = MeetingTaskStatus.from(rawValue: s2StatusRaw) {
             task.speaker2Status = s2StatusEnum
         }
-        if let s1FailedRaw = row[speaker1FailedStep], let s1FailedEnum = MeetingTaskStatus(rawValue: s1FailedRaw) {
+        if let s1FailedRaw = row[speaker1FailedStep], let s1FailedEnum = MeetingTaskStatus.from(rawValue: s1FailedRaw) {
             task.speaker1FailedStep = s1FailedEnum
         }
-        if let s2FailedRaw = row[speaker2FailedStep], let s2FailedEnum = MeetingTaskStatus(rawValue: s2FailedRaw) {
+        if let s2FailedRaw = row[speaker2FailedStep], let s2FailedEnum = MeetingTaskStatus.from(rawValue: s2FailedRaw) {
             task.speaker2FailedStep = s2FailedEnum
         }
         

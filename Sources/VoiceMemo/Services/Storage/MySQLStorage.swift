@@ -280,7 +280,7 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
               let localFilePath = row.column("local_file_path")?.string,
               let title = row.column("title")?.string,
               let statusRaw = row.column("status")?.string,
-              let status = MeetingTaskStatus(rawValue: statusRaw) else {
+              let status = MeetingTaskStatus.from(rawValue: statusRaw) else {
             return nil
         }
         
@@ -304,11 +304,11 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
         task.outputMp3Path = row.column("output_mp3_path")?.string
         
         if let successStatusRaw = row.column("last_successful_status")?.string,
-           let successStatus = MeetingTaskStatus(rawValue: successStatusRaw) {
+           let successStatus = MeetingTaskStatus.from(rawValue: successStatusRaw) {
             task.lastSuccessfulStatus = successStatus
         }
         if let failedStatusRaw = row.column("failed_step")?.string,
-           let failedStep = MeetingTaskStatus(rawValue: failedStatusRaw) {
+           let failedStep = MeetingTaskStatus.from(rawValue: failedStatusRaw) {
             task.failedStep = failedStep
         }
         task.retryCount = row.column("retry_count")?.int ?? 0
@@ -327,20 +327,20 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
         task.alignedConversation = row.column("aligned_conversation")?.string
         
         if let s1StatusRaw = row.column("speaker1_status")?.string,
-           let s1Status = MeetingTaskStatus(rawValue: s1StatusRaw) {
+           let s1Status = MeetingTaskStatus.from(rawValue: s1StatusRaw) {
             task.speaker1Status = s1Status
         }
         if let s2StatusRaw = row.column("speaker2_status")?.string,
-           let s2Status = MeetingTaskStatus(rawValue: s2StatusRaw) {
+           let s2Status = MeetingTaskStatus.from(rawValue: s2StatusRaw) {
             task.speaker2Status = s2Status
         }
         
         if let s1FailedRaw = row.column("speaker1_failed_step")?.string,
-           let s1Failed = MeetingTaskStatus(rawValue: s1FailedRaw) {
+           let s1Failed = MeetingTaskStatus.from(rawValue: s1FailedRaw) {
             task.speaker1FailedStep = s1Failed
         }
         if let s2FailedRaw = row.column("speaker2_failed_step")?.string,
-           let s2Failed = MeetingTaskStatus(rawValue: s2FailedRaw) {
+           let s2Failed = MeetingTaskStatus.from(rawValue: s2FailedRaw) {
             task.speaker2FailedStep = s2Failed
         }
         

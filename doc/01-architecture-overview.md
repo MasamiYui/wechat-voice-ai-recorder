@@ -79,7 +79,7 @@ flowchart TD
 Defined in `Models/MeetingTask.swift`:
 
 - `recorded`: merged audio saved, task created locally
-- `uploadingOriginal` → `uploadedOriginal`: upload original high-fidelity audio to OSS (backup)
+- `uploadingRaw` → `uploadedRaw`: upload original high-fidelity audio to OSS (backup)
 - `transcoding` → `transcoded`: transcode to 48kHz mixed audio
 - `uploading` → `uploaded`: upload transcoded audio to OSS
 - `created`: used as a transient "creating task" state in pipeline manager
