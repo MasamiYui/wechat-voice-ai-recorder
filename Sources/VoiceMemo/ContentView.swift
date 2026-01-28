@@ -27,49 +27,53 @@ struct ContentView: View {
             }
             .listStyle(.sidebar)
             .navigationTitle("Voice Memo")
+            .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
         } content: {
-            if let item = selectedSidebarItem {
-                switch item {
-                case .recording:
-                    List(RecordingModeItem.allCases, selection: $selectedRecordingMode) { mode in
-                        NavigationLink(value: mode) {
-                            VStack(alignment: .leading) {
-                                Label(mode.title, systemImage: mode.icon)
-                                Text(mode.description)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+            ZStack {
+                if let item = selectedSidebarItem {
+                    switch item {
+                    case .recording:
+                        List(RecordingModeItem.allCases, selection: $selectedRecordingMode) { mode in
+                            NavigationLink(value: mode) {
+                                VStack(alignment: .leading) {
+                                    Label(mode.title, systemImage: mode.icon)
+                                    Text(mode.description)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 4)
                             }
-                            .padding(.vertical, 4)
                         }
-                    }
-                    .navigationTitle("New Recording")
-                    
-                case .importAudio:
-                    List(ImportModeItem.allCases, selection: $selectedImportMode) { mode in
-                        NavigationLink(value: mode) {
-                            Label(mode.title, systemImage: mode.icon)
+                        .navigationTitle("New Recording")
+                        
+                    case .importAudio:
+                        List(ImportModeItem.allCases, selection: $selectedImportMode) { mode in
+                            NavigationLink(value: mode) {
+                                Label(mode.title, systemImage: mode.icon)
+                            }
                         }
-                    }
-                    .navigationTitle("Import")
-                    
-                case .history:
-                    HistoryListView(store: historyStore, selectedTask: $selectedTask)
-                        .navigationTitle("History")
-                    
-                case .settings:
-                    List(SettingsCategory.allCases, selection: $selectedSettingsCategory) { category in
-                        NavigationLink(value: category) {
-                            Label(category.title, systemImage: category.icon)
+                        .navigationTitle("Import")
+                        
+                    case .history:
+                        HistoryListView(store: historyStore, selectedTask: $selectedTask)
+                            .navigationTitle("History")
+                        
+                    case .settings:
+                        List(SettingsCategory.allCases, selection: $selectedSettingsCategory) { category in
+                            NavigationLink(value: category) {
+                                Label(category.title, systemImage: category.icon)
+                            }
                         }
+                        .navigationTitle("Settings")
                     }
-                    .navigationTitle("Settings")
+                } else {
+                    Text("Select an item")
+                        .foregroundColor(.secondary)
                 }
-            } else {
-                Text("Select an item")
-                    .foregroundColor(.secondary)
             }
+            .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
         } detail: {
-            if let item = selectedSidebarItem {
+        if let item = selectedSidebarItem {
                 switch item {
                 case .recording:
                     if let mode = selectedRecordingMode {
