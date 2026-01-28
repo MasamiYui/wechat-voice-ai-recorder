@@ -1,9 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct ImportSheet: View {
-    @Environment(\.dismiss) var dismiss
-    
+struct ImportView: View {
     @State private var selectedMode: MeetingMode = .mixed
     @State private var file1URL: URL?
     @State private var file2URL: URL?
@@ -12,14 +10,10 @@ struct ImportSheet: View {
     
     var onImport: (MeetingMode, [URL]) -> Void
     
-    init(onImport: @escaping (MeetingMode, [URL]) -> Void) {
-        self.onImport = onImport
-    }
-    
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 20) {
             Text("Import Audio")
-                .font(.headline)
+                .font(.largeTitle)
                 .padding()
             
             Form {
@@ -29,11 +23,6 @@ struct ImportSheet: View {
                         Text("Separated Mode (Dual Files)").tag(MeetingMode.separated)
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: selectedMode) { _ in
-                        // Optional: clear files on mode switch? 
-                        // Let's keep them if possible, but semantics change.
-                        // Actually better to keep them if user switches back and forth.
-                    }
                     
                     if selectedMode == .mixed {
                         Text("Mixed mode uses a single audio file for the entire meeting.")
@@ -64,27 +53,25 @@ struct ImportSheet: View {
                 }
             }
             .formStyle(.grouped)
+            .frame(maxWidth: 600)
             
-            Divider()
-            
-            HStack {
-                Button("Cancel") {
-                    dismiss()
+            Button(action: doImport) {
+                if isImporting {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Text("Start Import")
+                        .frame(maxWidth: .infinity)
                 }
-                .keyboardShortcut(.cancelAction)
-                
-                Spacer()
-                
-                Button("Import") {
-                    doImport()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canImport || isImporting)
             }
-            .padding()
-            .background(Color(nsColor: .windowBackgroundColor))
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!canImport || isImporting)
+            .frame(maxWidth: 300)
+            
+            Spacer()
         }
-        .frame(width: 500, height: 400)
+        .padding()
     }
     
     private var canImport: Bool {
@@ -103,9 +90,12 @@ struct ImportSheet: View {
         isImporting = true
         errorMessage = nil
         
-        // Slight delay to show loading state if needed, but we just call back
-        onImport(selectedMode, files)
-        dismiss()
+        // Slight delay to allow UI update
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            onImport(selectedMode, files)
+            isImporting = false
+            // Reset fields? Maybe not, user might want to import another.
+        }
     }
 }
 

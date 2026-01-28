@@ -4,6 +4,8 @@ import AppKit
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var storageManager = StorageManager.shared
+    var category: SettingsCategory?
+    
     @State private var akIdInput: String = ""
     @State private var akSecretInput: String = ""
     @State private var mysqlPasswordInput: String = ""
@@ -12,185 +14,29 @@ struct SettingsView: View {
     @State private var showingLog = false
     @State private var logText = ""
     
+    init(settings: SettingsStore, category: SettingsCategory? = nil) {
+        self.settings = settings
+        self.category = category
+    }
+    
     var body: some View {
-        TabView {
-            // MARK: - General
-            Form {
-                Section(header: Text("Audio & Features")) {
-                    Picker("Language", selection: $settings.language) {
-                        Text("Chinese (cn)").tag("cn")
-                        Text("Mixed (cn_en)").tag("cn_en")
-                    }
-                    
-                    Toggle("Enable Summary", isOn: $settings.enableSummary)
-                    Toggle("Enable Key Points", isOn: $settings.enableKeyPoints)
-                    Toggle("Enable Action Items", isOn: $settings.enableActionItems)
-                    Toggle("Enable Role Split", isOn: $settings.enableRoleSplit)
-                    Toggle("Enable Verbose Logging", isOn: $settings.enableVerboseLogging)
+        Group {
+            if let category = category {
+                switch category {
+                case .general:
+                    generalForm
+                case .cloud:
+                    cloudForm
+                case .storage:
+                    storageForm
                 }
-                
-                Section(header: Text("Logs")) {
-                    Text(settings.logFileURL().path)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    HStack {
-                        Button("Show Log") {
-                            logText = settings.readLogText()
-                            showingLog = true
-                        }
-                        Button("Open Log Folder") {
-                            let url = settings.logFileURL().deletingLastPathComponent()
-                            NSWorkspace.shared.open(url)
-                        }
-                        Button("Clear Log") {
-                            settings.clearLogFile()
-                            logText = ""
-                        }
-                    }
+            } else {
+                TabView {
+                    generalForm.tabItem { Text("General") }
+                    cloudForm.tabItem { Text("Cloud") }
+                    storageForm.tabItem { Text("Storage") }
                 }
             }
-            .tabItem { Text("General") }
-            
-            // MARK: - Cloud
-            Form {
-                Section(header: Text("Tingwu Configuration")) {
-                    TextField("AppKey", text: $settings.tingwuAppKey)
-                }
-                
-                Section(header: Text("OSS Configuration")) {
-                    TextField("Region", text: $settings.ossRegion)
-                    TextField("Endpoint", text: $settings.ossEndpoint)
-                    TextField("Bucket", text: $settings.ossBucket)
-                    TextField("Prefix", text: $settings.ossPrefix)
-                }
-                
-                Section(header: Text("Access Credentials (RAM)")) {
-                    if settings.hasAccessKeyId {
-                        HStack {
-                            Text("AccessKeyId: ******")
-                            Spacer()
-                            Button("Clear") {
-                                settings.clearSecrets()
-                            }
-                        }
-                    } else {
-                        TextField("AccessKeyId", text: $akIdInput)
-                    }
-                    
-                    if settings.hasAccessKeySecret {
-                        HStack {
-                            Text("AccessKeySecret: ******")
-                            Spacer()
-                            Button("Clear") {
-                                settings.clearSecrets()
-                            }
-                        }
-                    } else {
-                        SecureField("AccessKeySecret", text: $akSecretInput)
-                    }
-                    
-                    if !settings.hasAccessKeyId || !settings.hasAccessKeySecret {
-                        Button("Save Credentials") {
-                            if !akIdInput.isEmpty { settings.saveAccessKeyId(akIdInput) }
-                            if !akSecretInput.isEmpty { settings.saveAccessKeySecret(akSecretInput) }
-                            akIdInput = ""
-                            akSecretInput = ""
-                        }
-                        .disabled(akIdInput.isEmpty || akSecretInput.isEmpty)
-                    }
-                }
-                
-                Section(header: Text("Connection Test")) {
-                    Button("Test OSS Upload") {
-                        Task {
-                            await testUpload()
-                        }
-                    }
-                    if !testStatus.isEmpty {
-                        Text(testStatus)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            .tabItem { Text("Cloud") }
-            
-            // MARK: - Storage
-            Form {
-                Section(header: Text("Storage Type")) {
-                    Picker("Type", selection: $settings.storageType) {
-                        Text("Local (SQLite)").tag(SettingsStore.StorageType.local)
-                        Text("MySQL").tag(SettingsStore.StorageType.mysql)
-                    }
-                }
-                
-                if settings.storageType == .mysql {
-                    Section(header: Text("MySQL Configuration")) {
-                        TextField("Host", text: $settings.mysqlHost)
-                        TextField("Port", value: $settings.mysqlPort, formatter: NumberFormatter())
-                        TextField("User", text: $settings.mysqlUser)
-                        TextField("Database", text: $settings.mysqlDatabase)
-                        
-                        if settings.hasMySQLPassword {
-                            HStack {
-                                Text("Password: ******")
-                                Spacer()
-                                Button("Clear") {
-                                    settings.saveMySQLPassword("")
-                                }
-                            }
-                        } else {
-                            SecureField("Password", text: $mysqlPasswordInput)
-                            Button("Save Password") {
-                                settings.saveMySQLPassword(mysqlPasswordInput)
-                                mysqlPasswordInput = ""
-                            }
-                            .disabled(mysqlPasswordInput.isEmpty)
-                        }
-                    }
-                    
-                    Section(header: Text("Actions")) {
-                        Button("Test MySQL Connection") {
-                            Task {
-                                await testMySQL()
-                            }
-                        }
-                        if !mysqlTestStatus.isEmpty {
-                            Text(mysqlTestStatus)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Divider()
-                        
-                        Button("Sync Local to MySQL") {
-                            Task {
-                                await storageManager.syncToMySQL()
-                            }
-                        }
-                        .disabled(storageManager.isSyncing)
-                        
-                        if storageManager.isSyncing {
-                            ProgressView("Syncing...", value: storageManager.syncProgress, total: 1.0)
-                        }
-                        
-                        if let err = storageManager.syncError {
-                            Text("Sync Error: \(err)").foregroundColor(.red)
-                        }
-                    }
-                } else {
-                    Section(header: Text("MySQL")) {
-                        Text("Switch to MySQL mode to configure connection and sync local history.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Button("Go to MySQL Setup") {
-                            settings.storageType = .mysql
-                        }
-                    }
-                }
-            }
-            .tabItem { Text("Storage") }
         }
         .padding()
         .sheet(isPresented: $showingLog) {
@@ -209,8 +55,193 @@ struct SettingsView: View {
                     .font(.system(.body, design: .monospaced))
                     .padding()
                     .background(Color(nsColor: .textBackgroundColor))
+                
+                Button("Close") {
+                    showingLog = false
+                }
+                .padding()
             }
             .frame(width: 700, height: 500)
+        }
+    }
+    
+    // MARK: - Forms
+    
+    private var generalForm: some View {
+        Form {
+            Section(header: Text("Audio & Features")) {
+                Picker("Language", selection: $settings.language) {
+                    Text("Chinese (cn)").tag("cn")
+                    Text("Mixed (cn_en)").tag("cn_en")
+                }
+                
+                Toggle("Enable Summary", isOn: $settings.enableSummary)
+                Toggle("Enable Key Points", isOn: $settings.enableKeyPoints)
+                Toggle("Enable Action Items", isOn: $settings.enableActionItems)
+                Toggle("Enable Role Split", isOn: $settings.enableRoleSplit)
+                Toggle("Enable Verbose Logging", isOn: $settings.enableVerboseLogging)
+            }
+            
+            Section(header: Text("Logs")) {
+                Text(settings.logFileURL().path)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                HStack {
+                    Button("Show Log") {
+                        logText = settings.readLogText()
+                        showingLog = true
+                    }
+                    Button("Open Log Folder") {
+                        let url = settings.logFileURL().deletingLastPathComponent()
+                        NSWorkspace.shared.open(url)
+                    }
+                    Button("Clear Log") {
+                        settings.clearLogFile()
+                        logText = ""
+                    }
+                }
+            }
+        }
+    }
+    
+    private var cloudForm: some View {
+        Form {
+            Section(header: Text("Tingwu Configuration")) {
+                TextField("AppKey", text: $settings.tingwuAppKey)
+            }
+            
+            Section(header: Text("OSS Configuration")) {
+                TextField("Region", text: $settings.ossRegion)
+                TextField("Endpoint", text: $settings.ossEndpoint)
+                TextField("Bucket", text: $settings.ossBucket)
+                TextField("Prefix", text: $settings.ossPrefix)
+            }
+            
+            Section(header: Text("Access Credentials (RAM)")) {
+                if settings.hasAccessKeyId {
+                    HStack {
+                        Text("AccessKeyId: ******")
+                        Spacer()
+                        Button("Clear") {
+                            settings.clearSecrets()
+                        }
+                    }
+                } else {
+                    TextField("AccessKeyId", text: $akIdInput)
+                }
+                
+                if settings.hasAccessKeySecret {
+                    HStack {
+                        Text("AccessKeySecret: ******")
+                        Spacer()
+                        Button("Clear") {
+                            settings.clearSecrets()
+                        }
+                    }
+                } else {
+                    SecureField("AccessKeySecret", text: $akSecretInput)
+                }
+                
+                if !settings.hasAccessKeyId || !settings.hasAccessKeySecret {
+                    Button("Save Credentials") {
+                        if !akIdInput.isEmpty { settings.saveAccessKeyId(akIdInput) }
+                        if !akSecretInput.isEmpty { settings.saveAccessKeySecret(akSecretInput) }
+                        akIdInput = ""
+                        akSecretInput = ""
+                    }
+                    .disabled(akIdInput.isEmpty || akSecretInput.isEmpty)
+                }
+            }
+            
+            Section(header: Text("Connection Test")) {
+                Button("Test OSS Upload") {
+                    Task {
+                        await testUpload()
+                    }
+                }
+                if !testStatus.isEmpty {
+                    Text(testStatus)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+    
+    private var storageForm: some View {
+        Form {
+            Section(header: Text("Storage Type")) {
+                Picker("Type", selection: $settings.storageType) {
+                    Text("Local (SQLite)").tag(SettingsStore.StorageType.local)
+                    Text("MySQL").tag(SettingsStore.StorageType.mysql)
+                }
+            }
+            
+            if settings.storageType == .mysql {
+                Section(header: Text("MySQL Configuration")) {
+                    TextField("Host", text: $settings.mysqlHost)
+                    TextField("Port", value: $settings.mysqlPort, formatter: NumberFormatter())
+                    TextField("User", text: $settings.mysqlUser)
+                    TextField("Database", text: $settings.mysqlDatabase)
+                    
+                    if settings.hasMySQLPassword {
+                        HStack {
+                            Text("Password: ******")
+                            Spacer()
+                            Button("Clear") {
+                                settings.saveMySQLPassword("")
+                            }
+                        }
+                    } else {
+                        SecureField("Password", text: $mysqlPasswordInput)
+                        Button("Save Password") {
+                            settings.saveMySQLPassword(mysqlPasswordInput)
+                            mysqlPasswordInput = ""
+                        }
+                        .disabled(mysqlPasswordInput.isEmpty)
+                    }
+                }
+                
+                Section(header: Text("Actions")) {
+                    Button("Test MySQL Connection") {
+                        Task {
+                            await testMySQL()
+                        }
+                    }
+                    if !mysqlTestStatus.isEmpty {
+                        Text(mysqlTestStatus)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Divider()
+                    
+                    Button("Sync Local to MySQL") {
+                        Task {
+                            await storageManager.syncToMySQL()
+                        }
+                    }
+                    .disabled(storageManager.isSyncing)
+                    
+                    if storageManager.isSyncing {
+                        ProgressView("Syncing...", value: storageManager.syncProgress, total: 1.0)
+                    }
+                    
+                    if let err = storageManager.syncError {
+                        Text("Sync Error: \(err)").foregroundColor(.red)
+                    }
+                }
+            } else {
+                Section(header: Text("MySQL")) {
+                    Text("Switch to MySQL mode to configure connection and sync local history.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Button("Go to MySQL Setup") {
+                        settings.storageType = .mysql
+                    }
+                }
+            }
         }
     }
     
