@@ -15,84 +15,74 @@ struct PipelineView: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Task Info
-            HStack {
-                VStack(alignment: .leading) {
-                    Text(manager.task.title)
-                        .font(.headline)
-                    Text(manager.task.createdAt.formatted())
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-                Text(manager.task.status.rawValue.uppercased())
-                    .font(.caption)
-                    .padding(6)
-                    .background(statusColor.opacity(0.2))
-                    .foregroundColor(statusColor)
-                    .cornerRadius(4)
-            }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-            
+        VStack(spacing: 32) {
             // Pipeline Steps
             HStack(spacing: 0) {
                 // Record Step (Not interactive for rerun)
-                StepView(title: "Record", icon: "mic", isActive: false, isCompleted: true, isFailed: false)
+                StepView(title: "Record", icon: "mic.fill", isActive: false, isCompleted: true, isFailed: false)
                 
                 ArrowView()
                 
-                stepButton(title: "Upload Raw", icon: "arrow.up.doc", step: .uploadingOriginal)
+                stepButton(title: "Upload Raw", icon: "arrow.up.doc.fill", step: .uploadingOriginal)
                 ArrowView()
                 stepButton(title: "Transcode", icon: "waveform", step: .transcoding)
                 ArrowView()
-                stepButton(title: "Upload", icon: "icloud.and.arrow.up", step: .uploading)
+                stepButton(title: "Upload", icon: "icloud.and.arrow.up.fill", step: .uploading)
                 ArrowView()
                 stepButton(title: "Create Task", icon: "doc.badge.plus", step: .created)
                 ArrowView()
                 stepButton(title: "Poll", icon: "arrow.triangle.2.circlepath", step: .polling)
             }
-            .padding(.vertical)
+            .padding(.vertical, 20)
+            .padding(.horizontal, 10)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            .cornerRadius(16)
             
             // Separated Mode Status
             if manager.task.mode == .separated {
                 SeparatedStatusView(task: manager.task) { speakerId in
                     Task { await manager.retry(speaker: speakerId) }
                 }
-                .padding(.bottom, 10)
             }
             
-            Divider()
-            
             // Action Area
-            VStack(spacing: 12) {
+            VStack(spacing: 16) {
                 if let error = manager.errorMessage {
-                    Text("Error: \(error)")
-                        .foregroundColor(.red)
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(8)
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(error)
+                    }
+                    .foregroundColor(.red)
+                    .padding()
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(8)
                 }
                 
                 if manager.isProcessing {
                     ProgressView("Processing...")
+                        .controlSize(.large)
                 } else {
                     actionButton
+                        .controlSize(.large)
                 }
             }
-            .padding()
             
             if manager.task.status == .completed {
-                Button("View Result") {
+                Button(action: {
                     showingResult = true
+                }) {
+                    HStack {
+                        Text("View Result")
+                        Image(systemName: "chevron.right")
+                    }
+                    .frame(maxWidth: 200)
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
         }
-        .padding()
-        .frame(minWidth: 500)
+        .padding(24)
+        .frame(maxWidth: .infinity)
         .sheet(isPresented: $showingResult) {
             ResultView(task: manager.task, settings: settings)
         }
