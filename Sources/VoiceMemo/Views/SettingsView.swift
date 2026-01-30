@@ -168,8 +168,6 @@ struct SettingsView: View {
                     .toggleStyle(.switch)
                     .labelsHidden()
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
         }
     }
     
@@ -202,26 +200,12 @@ struct SettingsView: View {
                 Divider()
                 
                 // AI Features Group
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("AI Analysis")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .padding(.leading, Layout.labelWidth) // Align with form content
-                    
-                    VStack(spacing: 0) {
+                FormRow(label: "AI Analysis") {
+                    VStack(spacing: 10) {
                         ToggleRow(icon: "doc.text", title: "Summary", isOn: $settings.enableSummary)
-                        Divider().padding(.leading, 44)
                         ToggleRow(icon: "list.bullet.rectangle", title: "Key Points", isOn: $settings.enableKeyPoints)
-                        Divider().padding(.leading, 44)
                         ToggleRow(icon: "checkmark.square", title: "Action Items", isOn: $settings.enableActionItems)
                     }
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
-                    )
-                    .padding(.leading, Layout.labelWidth) // Align with form content
                 }
             }
 
