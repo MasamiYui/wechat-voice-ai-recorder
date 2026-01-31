@@ -354,6 +354,8 @@ struct SettingsView: View {
                     }
                     .labelsHidden()
                     .frame(maxWidth: Layout.standardPickerWidth)
+                    
+                    Spacer()
                 }
             }
             
