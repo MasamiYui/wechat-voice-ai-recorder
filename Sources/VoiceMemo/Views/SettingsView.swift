@@ -449,35 +449,82 @@ private struct LogSheet: View {
     @ObservedObject var settings: SettingsStore
     @Binding var isPresented: Bool
     @State private var logText = ""
+    @State private var searchText = ""
+    @State private var isLoading = false
     
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             HStack {
                 Text("Verbose Log")
                     .font(.headline)
                 Spacer()
                 Button("Refresh") {
-                    let content = settings.readLogText()
-                    logText = content.isEmpty ? "No logs found.\n\nTip: Enable 'Verbose Logging' in General settings to see more details." : content
+                    loadLogs()
                 }
+                .disabled(isLoading)
             }
             .padding()
             
-            TextEditor(text: $logText)
-                .font(.system(.body, design: .monospaced))
-                .padding()
-                .background(Color(nsColor: .textBackgroundColor))
-                .disabled(true)
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                TextField("Search logs...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .onSubmit {
+                        loadLogs()
+                    }
+                if !searchText.isEmpty {
+                    Button(action: {
+                        searchText = ""
+                        loadLogs()
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
             
-            Button("Close") {
-                isPresented = false
+            ZStack {
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                } else {
+                    TextEditor(text: $logText)
+                        .font(.system(.body, design: .monospaced))
+                        .padding()
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .disabled(true)
+                }
+            }
+            
+            HStack {
+                Text("Showing last 1000 lines")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("Close") {
+                    isPresented = false
+                }
             }
             .padding()
         }
         .frame(width: 700, height: 500)
         .onAppear {
-            let content = settings.readLogText()
-            logText = content.isEmpty ? "No logs found.\n\nTip: Enable 'Verbose Logging' in General settings to see more details." : content
+            loadLogs()
+        }
+    }
+    
+    private func loadLogs() {
+        isLoading = true
+        Task {
+            let content = settings.readLogText(maxLines: 1000, filter: searchText.isEmpty ? nil : searchText)
+            await MainActor.run {
+                logText = content.isEmpty ? "No logs found.\n\nTip: Enable 'Verbose Logging' in General settings to see more details." : content
+                isLoading = false
+            }
         }
     }
 }
