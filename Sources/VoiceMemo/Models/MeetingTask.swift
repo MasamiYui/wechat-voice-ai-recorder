@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let meetingTaskDidUpdate = Notification.Name("meetingTaskDidUpdate")
+}
+
 enum MeetingTaskStatus: String, Codable, CaseIterable, Hashable {
     case recorded      // 录音完成
     case uploadingRaw  // 上传原始文件中
@@ -66,7 +70,9 @@ enum MeetingMode: String, Codable, Hashable {
     case separated    // 分离模式 (双人分轨)
 }
 
-struct MeetingTask: Identifiable, Codable, Hashable, Equatable {
+class MeetingTask: Identifiable, ObservableObject, Hashable, Codable {
+    static let userInfoTaskKey = "task"
+    
     var id: UUID = UUID()
     var createdAt: Date = Date()
     var recordingId: String
@@ -133,10 +139,18 @@ struct MeetingTask: Identifiable, Codable, Hashable, Equatable {
     }
     
     static func == (lhs: MeetingTask, rhs: MeetingTask) -> Bool {
-        return lhs.id == rhs.id
+        return lhs.id == rhs.id &&
+               lhs.status == rhs.status &&
+               lhs.speaker1Status == rhs.speaker1Status &&
+               lhs.speaker2Status == rhs.speaker2Status &&
+               lhs.title == rhs.title
     }
     
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+        hasher.combine(status)
+        hasher.combine(speaker1Status)
+        hasher.combine(speaker2Status)
+        hasher.combine(title)
     }
 }
