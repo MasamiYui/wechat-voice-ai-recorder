@@ -423,8 +423,10 @@ class MeetingPipelineManager: ObservableObject {
             self.task.status = status
         case 1:
             self.task.speaker1Status = status
+            syncGlobalStatus()
         case 2:
             self.task.speaker2Status = status
+            syncGlobalStatus()
         default:
             break
         }
@@ -443,7 +445,8 @@ class MeetingPipelineManager: ObservableObject {
                         self.task.speaker2Status = .failed
                         self.task.speaker2FailedStep = step
                     }
-                    self.task.status = .failed
+                    // Sync failure status
+                    syncGlobalStatus()
                 } else {
                     self.task.status = .failed
                     self.task.failedStep = step
@@ -455,7 +458,7 @@ class MeetingPipelineManager: ObservableObject {
                 if let spk = speaker {
                     if spk == 1 { self.task.speaker1Status = status }
                     else { self.task.speaker2Status = status }
-                    if self.task.status != .polling { self.task.status = status }
+                    syncGlobalStatus()
                 } else {
                     self.task.status = status
                 }
@@ -463,6 +466,58 @@ class MeetingPipelineManager: ObservableObject {
             }
         }
         await self.save()
+    }
+    
+    /// Synchronizes global status based on speaker statuses in Separated Mode.
+    /// Uses the "earliest" active state logic (e.g. if one is uploading and one is transcoding, show uploading).
+    private func syncGlobalStatus() {
+        guard task.mode == .separated else { return }
+        
+        let s1 = task.speaker1Status ?? .recorded
+        let s2 = task.speaker2Status ?? .recorded
+        
+        // 1. Failure takes precedence
+        if s1 == .failed || s2 == .failed {
+            if task.status != .failed { task.status = .failed }
+            return
+        }
+        
+        // 2. Completion requires both
+        if s1 == .completed && s2 == .completed {
+            if task.status != .completed { task.status = .completed }
+            return
+        }
+        
+        // 3. Active processing state (show the earliest active step)
+        let steps: [MeetingTaskStatus] = [
+            .uploadingRaw, .uploadedRaw,
+            .transcoding, .transcoded,
+            .uploading, .uploaded,
+            .created, .polling
+        ]
+        
+        func rank(_ s: MeetingTaskStatus) -> Int {
+            return steps.firstIndex(of: s) ?? -1
+        }
+        
+        let r1 = rank(s1)
+        let r2 = rank(s2)
+        
+        var target: MeetingTaskStatus = .recorded
+        
+        if r1 >= 0 || r2 >= 0 {
+            if r1 >= 0 && r2 >= 0 {
+                target = steps[min(r1, r2)]
+            } else if r1 >= 0 {
+                target = s1
+            } else if r2 >= 0 {
+                target = s2
+            }
+        }
+        
+        if task.status != target {
+            task.status = target
+        }
     }
     
     private func tryAlign() async {
@@ -475,7 +530,7 @@ class MeetingPipelineManager: ObservableObject {
                 if !t1.isEmpty { merged += "### Speaker 1 (Local)\n\(t1)\n\n" }
                 if !t2.isEmpty { merged += "### Speaker 2 (Remote)\n\(t2)\n" }
                 self.task.transcript = merged
-                self.task.status = .completed
+                syncGlobalStatus()
                 return true
             }
             return false
@@ -494,5 +549,6 @@ class MeetingPipelineManager: ObservableObject {
     private func save() async {
         let snapshot = await MainActor.run { self.task }
         try? await StorageManager.shared.currentProvider.saveTask(snapshot)
+        NotificationCenter.default.post(name: .meetingTaskDidUpdate, object: snapshot.id, userInfo: [MeetingTask.userInfoTaskKey: snapshot])
     }
 }
