@@ -185,8 +185,17 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
         guard let pool = pool else {
             throw StorageError.poolNotInitialized
         }
+        
+        // Only select lightweight columns for list view to improve performance
+        let columns = [
+            "id", "created_at", "recording_id", "local_file_path", "oss_url",
+            "tingwu_task_id", "status", "title", "last_error", "task_key",
+            "api_status", "status_text", "biz_duration", "output_mp3_path",
+            "last_successful_status", "failed_step", "retry_count", "original_oss_url"
+        ].joined(separator: ", ")
+        
         return try await pool.withConnection { conn in
-            conn.query("SELECT * FROM meeting_tasks ORDER BY created_at DESC").flatMapThrowing { rows in
+            conn.query("SELECT \(columns) FROM meeting_tasks ORDER BY created_at DESC").flatMapThrowing { rows in
                 rows.compactMap { self.mapRowToTask($0) }
             }
         }.get()

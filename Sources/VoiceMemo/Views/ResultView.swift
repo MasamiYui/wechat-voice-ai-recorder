@@ -5,7 +5,15 @@ struct ResultView: View {
     let task: MeetingTask
     let settings: SettingsStore
     @State private var selectedTab: ResultTab = .overview
+    @State private var loadedTask: MeetingTask?
+    @State private var isLoadingDetails = false
+    @State private var cachedTranscript: String?
+    @State private var isLoadingTranscript = false
     @Namespace private var animationNamespace
+    
+    private var effectiveTask: MeetingTask {
+        loadedTask ?? task
+    }
     
     enum ResultTab: String, CaseIterable, Identifiable {
         case overview = "Overview"
@@ -32,10 +40,10 @@ struct ResultView: View {
                 // Top Row: Title & Actions
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(task.title)
+                        Text(effectiveTask.title)
                             .font(.title2)
                             .fontWeight(.bold)
-                        Text(task.createdAt, style: .date)
+                        Text(effectiveTask.createdAt, style: .date)
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -53,10 +61,13 @@ struct ResultView: View {
                 HStack(spacing: 24) {
                     ForEach(ResultTab.allCases) { tab in
                         Button {
-                            withAnimation(.snappy) {
-                                selectedTab = tab
-                            }
-                        } label: {
+                        withAnimation(.snappy) {
+                            selectedTab = tab
+                        }
+                        if tab == .transcript {
+                            loadTranscript()
+                        }
+                    } label: {
                             VStack(spacing: 6) {
                                 Text(tab.rawValue)
                                     .font(.system(size: 14))
@@ -90,22 +101,32 @@ struct ResultView: View {
             
             // Content
             Group {
-                switch selectedTab {
-                case .overview:
-                    OverviewView(task: task)
-                case .transcript:
-                    TranscriptView(text: derivedTranscript() ?? "No transcript available.")
-                case .raw:
-                    ScrollView {
-                        Text(task.rawData ?? task.rawResponse ?? "No raw response.")
-                            .font(.monospaced(.body)())
-                            .padding(24)
-                            .textSelection(.enabled)
-                    }
-                case .pipeline:
-                    PipelineView(task: task, settings: settings) {
-                        withAnimation {
-                            selectedTab = .overview
+                if isLoadingDetails {
+                    ProgressView("Loading details...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    switch selectedTab {
+                    case .overview:
+                        OverviewView(task: effectiveTask)
+                    case .transcript:
+                        if isLoadingTranscript {
+                            ProgressView("Loading transcript...")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            TranscriptView(text: cachedTranscript ?? "No transcript available.")
+                        }
+                    case .raw:
+                        ScrollView {
+                            Text(effectiveTask.rawData ?? effectiveTask.rawResponse ?? "No raw response.")
+                                .font(.monospaced(.body)())
+                                .padding(24)
+                                .textSelection(.enabled)
+                        }
+                    case .pipeline:
+                        PipelineView(task: effectiveTask, settings: settings) {
+                            withAnimation {
+                                selectedTab = .overview
+                            }
                         }
                     }
                 }
@@ -113,12 +134,15 @@ struct ResultView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .textBackgroundColor))
         }
+        .task {
+            await loadDetails()
+        }
     }
     
     private func exportMarkdown() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
-        panel.nameFieldStringValue = "\(task.title).md"
+        panel.nameFieldStringValue = "\(effectiveTask.title).md"
         
         panel.begin { response in
             if response == .OK, let url = panel.url {
@@ -129,6 +153,7 @@ struct ResultView: View {
     }
     
     private func generateMarkdown() -> String {
+        let task = effectiveTask
         var md = "# \(task.title)\n\n"
         md += "Date: \(task.createdAt)\n\n"
         
@@ -153,14 +178,50 @@ struct ResultView: View {
             md += "## Action Items\n\(actionItems)\n\n"
         }
         
-        if let transcript = derivedTranscript() {
+        if let transcript = Self.computeTranscript(task: task) {
             md += "## Transcript\n\(transcript)\n"
         }
         
         return md
     }
     
-    private func derivedTranscript() -> String? {
+    private func loadDetails() async {
+        // If we already have loaded task, skip
+        if loadedTask != nil { return }
+        
+        // Check if task needs loading details (e.g. transcriptData is nil but status is completed)
+        // If status is not completed, we might still want to refresh to get latest status
+        
+        isLoadingDetails = true
+        defer { isLoadingDetails = false }
+        
+        if let full = try? await StorageManager.shared.currentProvider.getTask(id: task.id) {
+            await MainActor.run {
+                self.loadedTask = full
+            }
+            // Preload transcript if tab is selected
+            if selectedTab == .transcript {
+                loadTranscript()
+            }
+        }
+    }
+    
+    private func loadTranscript() {
+        if cachedTranscript != nil { return }
+        
+        isLoadingTranscript = true
+        let task = self.effectiveTask
+        
+        Task.detached(priority: .userInitiated) {
+            let text = Self.computeTranscript(task: task)
+            await MainActor.run {
+                self.cachedTranscript = text
+                self.isLoadingTranscript = false
+            }
+        }
+    }
+    
+    private static func computeTranscript(task: MeetingTask) -> String? {
         if let transcript = task.transcript, !transcript.isEmpty {
             return transcript
         }
@@ -176,118 +237,11 @@ struct ResultView: View {
         
         guard let raw = task.rawResponse,
               let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let result = json["Result"] as? [String: Any] else {
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
         
-        if let transcription = result["Transcription"] as? [String: Any] {
-            return extractTranscript(from: transcription)
-        }
-        if let paragraphs = result["Paragraphs"] as? [[String: Any]] {
-            return extractTranscript(from: ["Paragraphs": paragraphs])
-        }
-        if let sentences = result["Sentences"] as? [[String: Any]] {
-            return extractTranscript(from: ["Sentences": sentences])
-        }
-        if let transcript = result["Transcript"] as? String {
-            return transcript
-        }
-        return nil
-    }
-    
-    private func extractTranscript(from transcriptionData: [String: Any]) -> String? {
-        if let paragraphs = transcriptionData["Paragraphs"] as? [[String: Any]] {
-            let lines = paragraphs.compactMap { paragraph -> String? in
-                let speaker = extractSpeaker(from: paragraph)
-                let text = extractText(from: paragraph)
-                guard !text.isEmpty else { return nil }
-                if let speaker {
-                    return "\(speaker): \(text)"
-                }
-                return text
-            }
-            return lines.joined(separator: "\n")
-        }
-        
-        if let sentences = transcriptionData["Sentences"] as? [[String: Any]] {
-            let lines = sentences.compactMap { sentence -> String? in
-                let speaker = extractSpeaker(from: sentence)
-                let text = extractText(from: sentence)
-                guard !text.isEmpty else { return nil }
-                if let speaker {
-                    return "\(speaker): \(text)"
-                }
-                return text
-            }
-            return lines.joined(separator: "\n")
-        }
-        
-        if let transcript = transcriptionData["Transcript"] as? String {
-            return transcript
-        }
-        
-        return nil
-    }
-    
-    private func extractText(from item: [String: Any]) -> String {
-        if let text = item["Text"] as? String, !text.isEmpty {
-            return text
-        }
-        if let text = item["text"] as? String, !text.isEmpty {
-            return text
-        }
-        if let words = item["Words"] as? [[String: Any]] {
-            let wordTexts = words.compactMap { word -> String? in
-                if let text = word["Text"] as? String, !text.isEmpty {
-                    return text
-                }
-                if let text = word["text"] as? String, !text.isEmpty {
-                    return text
-                }
-                return nil
-            }
-            return wordTexts.joined()
-        }
-        if let words = item["Words"] as? [String] {
-            return words.joined()
-        }
-        return ""
-    }
-    
-    private func extractSpeaker(from item: [String: Any]) -> String? {
-        if let name = item["SpeakerName"] as? String, !name.isEmpty {
-            return name
-        }
-        if let name = item["Speaker"] as? String, !name.isEmpty {
-            return name
-        }
-        if let name = item["Role"] as? String, !name.isEmpty {
-            return name
-        }
-        if let id = item["SpeakerId"] {
-            return "Speaker \(stringify(id))"
-        }
-        if let id = item["SpeakerID"] {
-            return "Speaker \(stringify(id))"
-        }
-        if let id = item["RoleId"] {
-            return "Speaker \(stringify(id))"
-        }
-        return nil
-    }
-    
-    private func stringify(_ value: Any) -> String {
-        if let str = value as? String {
-            return str
-        }
-        if let num = value as? Int {
-            return String(num)
-        }
-        if let num = value as? Double {
-            return String(Int(num))
-        }
-        return "\(value)"
+        return TranscriptParser.buildTranscriptText(from: json)
     }
 }
 
