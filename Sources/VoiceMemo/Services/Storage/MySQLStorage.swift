@@ -52,7 +52,12 @@ final class MySQLStorage: StorageProvider, @unchecked Sendable {
         )
         
         let source = MySQLConnectionSource(configuration: mysqlConfig)
-        self.pool = EventLoopGroupConnectionPool(source: source, on: group)
+        // Optimize connection pool settings
+        self.pool = EventLoopGroupConnectionPool(
+            source: source,
+            maxConnectionsAvailable: 10, // Limit max connections
+            on: group
+        )
     }
 
     func shutdown() {

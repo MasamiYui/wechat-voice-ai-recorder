@@ -61,7 +61,8 @@ class StorageManager: ObservableObject {
     
     func updateMySQLProvider() {
         guard let settings = settingsStore else { return }
-        mysqlProvider?.shutdown()
+        
+        // Only recreate if config changed
         let config = MySQLStorage.Config(
             host: settings.mysqlHost,
             port: settings.mysqlPort,
@@ -69,14 +70,22 @@ class StorageManager: ObservableObject {
             password: settings.getMySQLPassword() ?? "",
             database: settings.mysqlDatabase
         )
+        
+        // TODO: Ideally verify if config actually changed before recreating
+        mysqlProvider?.shutdown()
+        
         mysqlProvider = MySQLStorage(config: config)
         mysqlProvider?.logger = { [weak self] msg in
             self?.settingsStore?.log(msg)
         }
+        
         if settings.storageType == .mysql {
             currentProvider = mysqlProvider!
-            Task {
-                try? await mysqlProvider?.createTableIfNeeded()
+            
+            // Only create table once when initializing provider
+            // Use Task.detached to avoid blocking
+            Task.detached { [weak self] in
+                try? await self?.mysqlProvider?.createTableIfNeeded()
             }
         }
     }
