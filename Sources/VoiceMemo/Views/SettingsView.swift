@@ -34,6 +34,8 @@ struct SettingsView: View {
                         ossForm
                     case .storage:
                         storageForm
+                    case .logs:
+                        logsForm
                     }
                 } else {
                     TabView {
@@ -41,6 +43,7 @@ struct SettingsView: View {
                         asrForm.tabItem { Text("ASR") }
                         ossForm.tabItem { Text("OSS") }
                         storageForm.tabItem { Text("Storage") }
+                        logsForm.tabItem { Text("Logs") }
                     }
                 }
             }
@@ -198,7 +201,11 @@ struct SettingsView: View {
                     Spacer()
                 }
             }
-            
+        }
+    }
+    
+    private var logsForm: some View {
+        VStack(spacing: Layout.standardSpacing) {
             StyledGroupBox("Logs") {
                 FormRow(label: "Settings") {
                     Toggle("Verbose Logging", isOn: $settings.enableVerboseLogging)
