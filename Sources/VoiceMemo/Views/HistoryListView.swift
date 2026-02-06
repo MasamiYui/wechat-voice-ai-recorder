@@ -153,43 +153,32 @@ struct HistoryRow: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
+        VStack(alignment: .leading, spacing: 4) {
+            Label {
                 Text(task.title)
-                    .font(.headline)
-                    .lineLimit(1)
                     .foregroundColor(.primary)
-                
-                Spacer()
-                
-                if task.status == .completed {
-                    Text(formattedDuration)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+            } icon: {
+                Image(systemName: "waveform")
+                    .foregroundColor(.blue)
             }
             
-            HStack {
+            HStack(spacing: 6) {
                 Text(formattedDuration)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .opacity(task.status == .completed ? 0 : 1) // 已完成时隐藏，因为上面已显示
-                
-                Spacer()
-                
-                StatusBadge(status: task.status)
+                Text("•")
+                Text(task.status.displayName)
+                    .foregroundColor(task.status.color)
             }
+            .font(.caption)
+            .foregroundColor(.secondary)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 }
 
-struct StatusBadge: View {
-    let status: MeetingTaskStatus
-    
-    private var color: Color {
-        switch status {
+extension MeetingTaskStatus {
+    var color: Color {
+        switch self {
         case .completed: return .green
         case .failed: return .red
         case .recorded: return .blue
@@ -197,6 +186,10 @@ struct StatusBadge: View {
         default: return .gray
         }
     }
+}
+
+struct StatusBadge: View {
+    let status: MeetingTaskStatus
     
     private var isProcessing: Bool {
         switch status {
@@ -216,22 +209,22 @@ struct StatusBadge: View {
                     .frame(width: 8, height: 8)
             } else {
                 Circle()
-                    .fill(color)
+                    .fill(status.color)
                     .frame(width: 6, height: 6)
             }
             
             Text(status.displayName)
                 .font(.caption2)
                 .fontWeight(.medium)
-                .foregroundColor(color)
+                .foregroundColor(status.color)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(color.opacity(0.1))
+        .background(status.color.opacity(0.1))
         .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(color.opacity(0.2), lineWidth: 0.5)
+                .stroke(status.color.opacity(0.2), lineWidth: 0.5)
         )
     }
 }
