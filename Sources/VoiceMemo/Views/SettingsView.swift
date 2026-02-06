@@ -6,8 +6,10 @@ struct SettingsView: View {
     @ObservedObject var storageManager = StorageManager.shared
     var category: SettingsCategory?
     
-    @State private var akIdInput: String = ""
-    @State private var akSecretInput: String = ""
+    @State private var tingwuAkIdInput: String = ""
+    @State private var tingwuAkSecretInput: String = ""
+    @State private var ossAkIdInput: String = ""
+    @State private var ossAkSecretInput: String = ""
     @State private var volcAccessTokenInput: String = ""
     @State private var mysqlPasswordInput: String = ""
     @State private var testStatus: String = ""
@@ -258,34 +260,34 @@ struct SettingsView: View {
                 StyledGroupBox("Access Credentials (RAM)") {
                     FormRow(label: "AccessKeyId") {
                         CredentialRow(
-                            hasValue: settings.hasAccessKeyId,
-                            input: $akIdInput,
+                            hasValue: settings.hasTingwuAccessKeyId,
+                            input: $tingwuAkIdInput,
                             placeholder: "Paste AccessKeyId",
                             isSecure: false,
-                            onClear: { settings.clearAliyunSecrets() }
+                            onClear: { settings.clearTingwuSecrets() }
                         )
                     }
                     
                     FormRow(label: "AccessKeySecret") {
                         CredentialRow(
-                            hasValue: settings.hasAccessKeySecret,
-                            input: $akSecretInput,
+                            hasValue: settings.hasTingwuAccessKeySecret,
+                            input: $tingwuAkSecretInput,
                             placeholder: "Paste AccessKeySecret",
                             isSecure: true,
-                            onClear: { settings.clearAliyunSecrets() }
+                            onClear: { settings.clearTingwuSecrets() }
                         )
                     }
                     
-                    if !settings.hasAccessKeyId || !settings.hasAccessKeySecret {
+                    if !settings.hasTingwuAccessKeyId || !settings.hasTingwuAccessKeySecret {
                         HStack {
                             Spacer()
                             Button("Save Credentials") {
-                                if !akIdInput.isEmpty { settings.saveAccessKeyId(akIdInput) }
-                                if !akSecretInput.isEmpty { settings.saveAccessKeySecret(akSecretInput) }
-                                akIdInput = ""
-                                akSecretInput = ""
+                                if !tingwuAkIdInput.isEmpty { settings.saveTingwuAccessKeyId(tingwuAkIdInput) }
+                                if !tingwuAkSecretInput.isEmpty { settings.saveTingwuAccessKeySecret(tingwuAkSecretInput) }
+                                tingwuAkIdInput = ""
+                                tingwuAkSecretInput = ""
                             }
-                            .disabled(akIdInput.isEmpty || akSecretInput.isEmpty)
+                            .disabled(tingwuAkIdInput.isEmpty || tingwuAkSecretInput.isEmpty)
                         }
                     }
                 }
@@ -348,42 +350,35 @@ struct SettingsView: View {
                 Divider()
                 
                 FormRow(label: "AccessKeyId") {
-                    HStack {
-                        if settings.hasAccessKeyId {
-                            Text("Configured")
-                                .foregroundColor(.green)
-                                .font(.caption)
-                        } else {
-                            Text("Not configured")
-                                .foregroundColor(.red)
-                                .font(.caption)
-                        }
-                        Spacer()
-                        if settings.asrProvider != .tingwu {
-                            Text("Configure in Tingwu section")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                    CredentialRow(
+                        hasValue: settings.hasOSSAccessKeyId,
+                        input: $ossAkIdInput,
+                        placeholder: "Paste OSS AccessKeyId",
+                        isSecure: false,
+                        onClear: { settings.clearOSSSecrets() }
+                    )
                 }
                 
                 FormRow(label: "AccessKeySecret") {
+                    CredentialRow(
+                        hasValue: settings.hasOSSAccessKeySecret,
+                        input: $ossAkSecretInput,
+                        placeholder: "Paste OSS AccessKeySecret",
+                        isSecure: true,
+                        onClear: { settings.clearOSSSecrets() }
+                    )
+                }
+                
+                if !settings.hasOSSAccessKeyId || !settings.hasOSSAccessKeySecret {
                     HStack {
-                        if settings.hasAccessKeySecret {
-                            Text("Configured")
-                                .foregroundColor(.green)
-                                .font(.caption)
-                        } else {
-                            Text("Not configured")
-                                .foregroundColor(.red)
-                                .font(.caption)
-                        }
                         Spacer()
-                        if settings.asrProvider != .tingwu {
-                            Text("Configure in Tingwu section")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        Button("Save OSS Credentials") {
+                            if !ossAkIdInput.isEmpty { settings.saveOSSAccessKeyId(ossAkIdInput) }
+                            if !ossAkSecretInput.isEmpty { settings.saveOSSAccessKeySecret(ossAkSecretInput) }
+                            ossAkIdInput = ""
+                            ossAkSecretInput = ""
                         }
+                        .disabled(ossAkIdInput.isEmpty || ossAkSecretInput.isEmpty)
                     }
                 }
             }

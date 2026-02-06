@@ -182,8 +182,8 @@ class TingwuService: TranscriptionService {
     // MARK: - V3 Signature Implementation
     
     private func signRequest(_ request: inout URLRequest, body: Data?) async throws {
-        guard let akId = settings.getAccessKeyId(),
-              let akSecret = settings.getAccessKeySecret() else {
+        guard let akId = settings.getTingwuAccessKeyId(),
+              let akSecret = settings.getTingwuAccessKeySecret() else {
             throw TranscriptionError.invalidCredentials
         }
         
