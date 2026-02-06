@@ -194,62 +194,133 @@ struct TaskInfoView: View {
     let task: MeetingTask
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
             HStack {
-                Image(systemName: "info.circle")
-                    .foregroundColor(.blue)
-                Text("Task Info")
+                Label("Task Info", systemImage: "info.circle.fill")
                     .font(.headline)
+                    .foregroundColor(.accentColor)
+                
+                Spacer()
+                
+                // Provider Badge
+                if task.inferredProvider != "Unknown" {
+                    HStack(spacing: 6) {
+                        Image(systemName: task.providerIcon)
+                        Text(task.inferredProvider)
+                    }
+                    .font(.caption.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(8)
+                }
             }
             
-            VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            
+            // Grid Content
+            Grid(alignment: .leading, horizontalSpacing: 32, verticalSpacing: 12) {
                 if let key = task.taskKey {
-                    InfoRow(label: "Task Key", value: key)
-                }
-                if let status = task.apiStatus {
-                    InfoRow(label: "Status", value: status)
-                }
-                if let error = task.statusText, !error.isEmpty {
-                     InfoRow(label: "Message", value: error)
-                }
-                if let duration = task.bizDuration {
-                    InfoRow(label: "Duration", value: "\(duration / 1000)s")
-                }
-                if let mp3 = task.outputMp3Path, let url = URL(string: mp3) {
-                     HStack(alignment: .top) {
-                        Text("Audio:")
-                            .font(.subheadline)
+                    GridRow {
+                        Text("Task Key")
                             .foregroundColor(.secondary)
-                            .frame(width: 80, alignment: .leading)
-                        Link("Download Audio", destination: url)
+                            .gridColumnAlignment(.trailing)
+                        
+                        HStack {
+                            Text(key)
+                                .font(.system(.subheadline, design: .monospaced))
+                                .textSelection(.enabled)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(key, forType: .string)
+                            }) {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Copy Task Key")
+                        }
+                    }
+                }
+                
+                if let status = task.apiStatus {
+                    GridRow {
+                        Text("Status")
+                            .foregroundColor(.secondary)
+                            .gridColumnAlignment(.trailing)
+                        
+                        HStack {
+                            Circle()
+                                .fill(statusColor(status))
+                                .frame(width: 8, height: 8)
+                            Text(status)
+                                .font(.subheadline)
+                        }
+                    }
+                }
+                
+                if let error = task.statusText, !error.isEmpty {
+                    GridRow {
+                        Text("Message")
+                            .foregroundColor(.secondary)
+                            .gridColumnAlignment(.trailing)
+                            
+                        Text(error)
                             .font(.subheadline)
+                            .foregroundColor(.red)
+                    }
+                }
+                
+                if let duration = task.bizDuration {
+                    GridRow {
+                        Text("Duration")
+                            .foregroundColor(.secondary)
+                            .gridColumnAlignment(.trailing)
+                            
+                        Text("\(duration / 1000)s")
+                            .font(.subheadline)
+                    }
+                }
+                
+                if let mp3 = task.outputMp3Path, let url = URL(string: mp3) {
+                    GridRow {
+                        Text("Audio")
+                            .foregroundColor(.secondary)
+                            .gridColumnAlignment(.trailing)
+                            
+                        Link(destination: url) {
+                            Label("Download Audio", systemImage: "arrow.down.circle")
+                                .font(.subheadline)
+                        }
                     }
                 }
             }
         }
-        .padding()
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+        .padding(20)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.gray.opacity(0.1), lineWidth: 1)
         )
     }
-}
-
-struct InfoRow: View {
-    let label: String
-    let value: String
     
-    var body: some View {
-        HStack(alignment: .top) {
-            Text(label + ":")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .frame(width: 80, alignment: .leading)
-            Text(value)
-                .font(.subheadline)
-                .textSelection(.enabled)
+    private func statusColor(_ status: String) -> Color {
+        let s = status.uppercased()
+        if s == "SUCCESS" || s == "COMPLETED" || s == "20000000" {
+            return .green
+        } else if s == "RUNNING" || s == "POLLING" {
+            return .blue
+        } else if s == "FAILED" {
+            return .red
         }
+        return .secondary
     }
 }
 
