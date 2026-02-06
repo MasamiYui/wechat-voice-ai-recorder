@@ -238,6 +238,10 @@ class MeetingPipelineManager: ObservableObject {
         mixed.rawAudioOssURL = task.originalOssUrl
         mixed.processedAudioOssURL = task.ossUrl
         mixed.tingwuTaskId = task.tingwuTaskId
+        mixed.taskKey = task.taskKey
+        mixed.apiStatus = task.apiStatus
+        mixed.statusText = task.statusText
+        mixed.bizDuration = task.bizDuration
         board.channels[0] = mixed
         
         return board
@@ -259,6 +263,10 @@ class MeetingPipelineManager: ObservableObject {
         if let path = channel.processedAudioPath { self.task.localFilePath = path }
         if let url = channel.processedAudioOssURL { self.task.ossUrl = url }
         if let tid = channel.tingwuTaskId { self.task.tingwuTaskId = tid }
+        if let key = channel.taskKey { self.task.taskKey = key }
+        if let status = channel.apiStatus { self.task.apiStatus = status }
+        if let text = channel.statusText { self.task.statusText = text }
+        if let dur = channel.bizDuration { self.task.bizDuration = dur }
         if let res = channel.transcript {
             self.task.transcript = res.text
             if let sum = res.summary { self.task.summary = sum }

@@ -194,7 +194,30 @@ class PollingNode: PipelineNode {
         let (status, data) = try await services.transcriptionService.getTaskInfo(taskId: taskId)
         
         // 3. Write Status
-        board.updateChannel(channelId) { $0.tingwuTaskStatus = status }
+        board.updateChannel(channelId) { 
+            $0.tingwuTaskStatus = status 
+            $0.apiStatus = status
+            
+            if let data = data {
+                // Volcengine: audio_info.duration
+                if let audioInfo = data["audio_info"] as? [String: Any],
+                   let duration = audioInfo["duration"] as? Int {
+                    $0.bizDuration = duration
+                }
+                
+                // Tingwu: TaskKey, StatusText
+                if let taskKey = data["TaskKey"] as? String {
+                    $0.taskKey = taskKey
+                } else {
+                    // Fallback for Volcengine: Use the Request ID (taskId) as Task Key
+                    $0.taskKey = taskId
+                }
+                
+                if let statusText = data["StatusText"] as? String {
+                    $0.statusText = statusText
+                }
+            }
+        }
         
         if status == "SUCCESS" || status == "COMPLETED" {
             // Determine if this is Tingwu (has "Result" key with URLs) or Volcengine (direct "result" key)

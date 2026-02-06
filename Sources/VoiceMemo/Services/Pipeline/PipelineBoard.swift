@@ -51,6 +51,12 @@ struct ChannelData {
     var tingwuTaskId: String?
     var tingwuTaskStatus: String?     // e.g. "RUNNING", "COMPLETE"
     
+    // Additional Task Info
+    var taskKey: String?
+    var apiStatus: String?
+    var statusText: String?
+    var bizDuration: Int?
+    
     // 4. 最终产物
     var transcript: TingwuResult?     // 解析后的结构化结果
     

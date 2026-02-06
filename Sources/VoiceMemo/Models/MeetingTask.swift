@@ -128,3 +128,35 @@ class MeetingTask: Identifiable, ObservableObject, Hashable, Codable {
         hasher.combine(title)
     }
 }
+
+extension MeetingTask {
+    var inferredProvider: String {
+        // Try to infer from raw data structure
+        if let data = self.overviewData ?? self.rawData, !data.isEmpty {
+            if data.contains("\"audio_info\"") {
+                return "Volcengine"
+            }
+            if data.contains("\"TaskKey\"") || data.contains("\"MeetingAssistance\"") {
+                return "Tingwu"
+            }
+        }
+        
+        // Fallback: Check if we have specific fields that might hint
+        // This is a weak heuristic but better than nothing for legacy data
+        if let _ = self.tingwuTaskId {
+             // Both use this field currently, so it's not decisive unless we check format
+             // But if we have no raw data, we might assume Tingwu as it was the default/first
+             return "Unknown"
+        }
+        
+        return "Unknown"
+    }
+    
+    var providerIcon: String {
+        switch inferredProvider {
+        case "Volcengine": return "waveform.path.ecg"
+        case "Tingwu": return "waveform.circle"
+        default: return "questionmark.circle"
+        }
+    }
+}
