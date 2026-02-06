@@ -344,6 +344,48 @@ struct SettingsView: View {
                     TextField("Path Prefix (e.g. voice/)", text: $settings.ossPrefix)
                         .textFieldStyle(.roundedBorder)
                 }
+                
+                Divider()
+                
+                FormRow(label: "AccessKeyId") {
+                    HStack {
+                        if settings.hasAccessKeyId {
+                            Text("Configured")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                        } else {
+                            Text("Not configured")
+                                .foregroundColor(.red)
+                                .font(.caption)
+                        }
+                        Spacer()
+                        if settings.asrProvider != .tingwu {
+                            Text("Configure in Tingwu section")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                FormRow(label: "AccessKeySecret") {
+                    HStack {
+                        if settings.hasAccessKeySecret {
+                            Text("Configured")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                        } else {
+                            Text("Not configured")
+                                .foregroundColor(.red)
+                                .font(.caption)
+                        }
+                        Spacer()
+                        if settings.asrProvider != .tingwu {
+                            Text("Configure in Tingwu section")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             }
             
             // Removed common Access Credentials section as it's now provider specific above
