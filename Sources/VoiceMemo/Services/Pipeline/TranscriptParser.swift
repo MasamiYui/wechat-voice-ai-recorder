@@ -55,14 +55,16 @@ struct TingwuParser: TranscriptionResultParser {
     
     private func extractText(from item: [String: Any]) -> String {
         if let text = item["Text"] as? String, !text.isEmpty { return text }
+        if let text = item["text"] as? String, !text.isEmpty { return text }
         if let words = item["Words"] as? [[String: Any]] {
-            return words.compactMap { $0["Text"] as? String }.joined()
+            return words.compactMap { $0["Text"] as? String ?? $0["text"] as? String }.joined()
         }
         return ""
     }
     
     private func extractSpeaker(from item: [String: Any]) -> String? {
-        if let name = item["SpeakerName"] as? String, !name.isEmpty { return TranscriptFormatHelper.formatSpeaker(name) }
+        if let name = item["SpeakerName"] as? String, !name.isEmpty { return name }
+        if let speaker = item["Speaker"] as? String, !speaker.isEmpty { return speaker }
         if let id = item["SpeakerId"] ?? item["SpeakerID"] { return TranscriptFormatHelper.formatSpeaker(id) }
         return nil
     }
