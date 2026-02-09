@@ -313,12 +313,17 @@ struct SettingsView: View {
                     Picker("", selection: $settings.asrProvider) {
                         Text("Aliyun Tingwu").tag(SettingsStore.ASRProvider.tingwu)
                         Text("Volcengine (Doubao)").tag(SettingsStore.ASRProvider.volcengine)
+                        Text("Local Whisper").tag(SettingsStore.ASRProvider.localWhisper)
                     }
                     .labelsHidden()
                     .frame(maxWidth: Layout.standardPickerWidth)
                     
                     Spacer()
                 }
+            }
+            
+            if settings.asrProvider == .localWhisper {
+                LocalInferenceSettingsView(settings: settings)
             }
             
             if settings.asrProvider == .tingwu {

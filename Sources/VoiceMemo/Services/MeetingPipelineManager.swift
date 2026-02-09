@@ -103,7 +103,12 @@ class MeetingPipelineManager: ObservableObject {
         } else if startStep == .uploadedRaw || startStep == .transcoding {
             nodes.append(TranscodeNode(channelId: channelId))
         } else if startStep == .transcoded || startStep == .uploading {
-            nodes.append(UploadNode(channelId: channelId))
+            if settings.asrProvider == .localWhisper {
+                // Local Whisper skips upload step and goes directly to task creation
+                nodes.append(CreateTaskNode(channelId: channelId))
+            } else {
+                nodes.append(UploadNode(channelId: channelId))
+            }
         } else if startStep == .uploaded || startStep == .created {
             nodes.append(CreateTaskNode(channelId: channelId))
         } else if startStep == .polling {

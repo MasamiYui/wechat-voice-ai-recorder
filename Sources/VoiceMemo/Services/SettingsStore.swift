@@ -13,6 +13,7 @@ class SettingsStore: ObservableObject {
     enum ASRProvider: String, CaseIterable, Identifiable {
         case tingwu
         case volcengine
+        case localWhisper
         var id: String { self.rawValue }
     }
 
@@ -77,6 +78,11 @@ class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(volcResourceId, forKey: "volcResourceId") }
     }
     
+    // Whisper Config
+    @Published var whisperModel: String {
+        didSet { UserDefaults.standard.set(whisperModel, forKey: "whisperModel") }
+    }
+    
     @Published var language: String {
         didSet { UserDefaults.standard.set(language, forKey: "tingwuLanguage") }
     }
@@ -135,6 +141,8 @@ class SettingsStore: ObservableObject {
         
         self.volcAppId = UserDefaults.standard.string(forKey: "volcAppId") ?? ""
         self.volcResourceId = UserDefaults.standard.string(forKey: "volcResourceId") ?? "volc.bigasr.auc"
+        
+        self.whisperModel = UserDefaults.standard.string(forKey: "whisperModel") ?? "base"
         
         self.language = UserDefaults.standard.string(forKey: "tingwuLanguage") ?? "cn"
         

@@ -106,12 +106,36 @@ struct VolcengineParser: TranscriptionResultParser {
     }
 }
 
+struct LocalWhisperParser: TranscriptionResultParser {
+    func canParse(_ data: [String: Any]) -> Bool {
+        return data["provider"] as? String == "localWhisper" || data.keys.contains("segments")
+    }
+    
+    func parse(_ data: [String: Any]) -> String? {
+        if let segments = data["segments"] as? [[String: Any]] {
+            return segments.compactMap { extractLine(from: $0) }.joined(separator: "\n")
+        }
+        return nil
+    }
+    
+    private func extractLine(from item: [String: Any]) -> String? {
+        let text = item["text"] as? String ?? ""
+        guard !text.isEmpty else { return nil }
+        
+        if let speaker = item["speaker"] as? String, !speaker.isEmpty {
+            return "\(TranscriptFormatHelper.formatSpeaker(speaker)): \(text.trimmingCharacters(in: .whitespaces))"
+        }
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+}
+
 /// Facade for parsing transcription results
 struct TranscriptParser {
     
     private static let parsers: [TranscriptionResultParser] = [
         TingwuParser(),
-        VolcengineParser()
+        VolcengineParser(),
+        LocalWhisperParser()
     ]
     
     static func buildTranscriptText(from transcriptionData: [String: Any]) -> String? {

@@ -11,7 +11,8 @@ RESOURCES_DIR = "Sources/VoiceMemo/Resources"
 DEPENDENCIES = [
     ("https://github.com/aliyun/alibabacloud-oss-swift-sdk-v2.git", "0.1.0-beta", "AlibabaCloudOSS"),
     ("https://github.com/stephencelis/SQLite.swift.git", "0.14.1", "SQLite"),
-    ("https://github.com/vapor/mysql-kit.git", "4.0.0", "MySQLKit")
+    ("https://github.com/vapor/mysql-kit.git", "4.0.0", "MySQLKit"),
+    ("https://github.com/argmaxinc/WhisperKit.git", "0.10.0", "WhisperKit")
 ]
 
 def gen_id(key):

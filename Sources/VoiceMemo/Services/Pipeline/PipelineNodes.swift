@@ -157,8 +157,15 @@ class CreateTaskNode: PipelineNode {
     func run(board: inout PipelineBoard, services: ServiceProvider) async throws {
         // 1. Read Input
         let channel = try board.getChannel(channelId)
-        guard let url = channel.processedAudioOssURL else {
-            throw PipelineError.inputMissing("OSS URL missing")
+        
+        // Determine input URL (OSS or Local)
+        let fileUrl: String
+        if let ossUrl = channel.processedAudioOssURL {
+            fileUrl = ossUrl
+        } else if let localPath = channel.processedAudioPath {
+            fileUrl = URL(fileURLWithPath: localPath).absoluteString
+        } else {
+             throw PipelineError.inputMissing("Audio URL missing (OSS or Local)")
         }
         
         // 2. Idempotency Check
@@ -169,7 +176,7 @@ class CreateTaskNode: PipelineNode {
         
         // 3. Execution
         // TODO: Pass configuration parameters (summarization, diarization)
-        let taskId = try await services.transcriptionService.createTask(fileUrl: url)
+        let taskId = try await services.transcriptionService.createTask(fileUrl: fileUrl)
         
         // 4. Write Output
         board.updateChannel(channelId) { $0.tingwuTaskId = taskId }
