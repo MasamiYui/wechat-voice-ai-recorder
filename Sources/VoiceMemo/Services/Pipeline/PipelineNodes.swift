@@ -228,9 +228,13 @@ class PollingNode: PipelineNode {
         
         if status == "RUNNING", let data = data {
             if data["provider"] as? String == "localWhisper" || data.keys.contains("segments") {
+                print("PollingNode: Found localWhisper results in RUNNING state")
                 let transcriptText = TranscriptParser.buildTranscriptText(from: data)
-                board.updateChannel(channelId) {
-                    $0.transcript = TingwuResult(text: transcriptText, summary: nil)
+                if let text = transcriptText, !text.isEmpty {
+                    print("PollingNode: Extracted transcript length: \(text.count)")
+                    board.updateChannel(channelId) {
+                        $0.transcript = TingwuResult(text: text, summary: nil)
+                    }
                 }
             }
         }
@@ -277,12 +281,15 @@ class PollingNode: PipelineNode {
                  // --- Local Whisper Logic ---
                  // Direct parsing from the data object
                  if let data = data {
+                     print("PollingNode: Processing SUCCESS state for localWhisper")
                      let transcriptText = TranscriptParser.buildTranscriptText(from: data)
                      let rawData = await fetchRawData(from: data, service: services.transcriptionService)
                      let transcriptData = await fetchRawData(from: data, service: services.transcriptionService)
                      
+                     print("PollingNode: localWhisper final transcript length: \(transcriptText?.count ?? 0)")
+                     
                      board.updateChannel(channelId) {
-                         $0.transcript = TingwuResult(text: transcriptText, summary: nil)
+                         $0.transcript = TingwuResult(text: transcriptText ?? "", summary: nil)
                          $0.overviewData = nil
                          $0.transcriptData = transcriptData
                          $0.conversationData = nil

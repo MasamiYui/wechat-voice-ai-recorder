@@ -411,7 +411,13 @@ class MeetingPipelineManager: ObservableObject {
     private func save() async {
         let snapshot = await MainActor.run { self.task }
         let providerType = String(describing: type(of: StorageManager.shared.currentProvider))
+        
+        // Log more details about what we are saving
         settings.log("MeetingPipelineManager save() called. TaskID: \(snapshot.id), Status: \(snapshot.status.rawValue), Provider: \(providerType)")
+        settings.log("  - transcript: \(snapshot.transcript?.prefix(50) ?? "nil")...")
+        settings.log("  - summary: \(snapshot.summary?.prefix(50) ?? "nil")...")
+        settings.log("  - transcriptData: \(snapshot.transcriptData != nil ? "present" : "nil")")
+        settings.log("  - rawData: \(snapshot.rawData != nil ? "present" : "nil")")
         
         do {
             try await StorageManager.shared.currentProvider.saveTask(snapshot)

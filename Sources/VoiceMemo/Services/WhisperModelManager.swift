@@ -19,12 +19,33 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
     
     // Public accessor for the current active pipe (for backward compatibility/simplicity)
     var pipe: WhisperKit? {
-        get {
-            // Return the pipe for currentModelName if loaded
-            if case .loaded(let p, _) = models[currentModelName] { return p }
-            if case .cached(let p, _) = models[currentModelName] { return p }
-            return nil
+        var p: WhisperKit?
+        let current = currentModelName
+        queue.sync {
+            // Priority 1: Check if currentModelName is loaded/cached
+            if let instance = models[current] {
+                switch instance {
+                case .loaded(let kit, _), .cached(let kit, _):
+                    p = kit
+                    return
+                default: break
+                }
+            }
+            
+            // Priority 2: Fallback to any loaded model
+            for (_, instance) in models {
+                switch instance {
+                case .loaded(let kit, _), .cached(let kit, _):
+                    p = kit
+                    return
+                default: continue
+                }
+            }
         }
+        if p == nil {
+            print("[WhisperModelManager] Warning: No model instance found in models dictionary. Current: \(current)")
+        }
+        return p
     }
     
     enum ModelInstance {

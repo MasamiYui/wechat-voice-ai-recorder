@@ -135,17 +135,12 @@ actor LocalTaskManager {
     // MARK: - Execution Logic
     
     func executeTask(taskId: String, audioUrl: URL, modelName: String, enableRoleSplit: Bool) async {
+        print("[LocalTaskManager] Starting task \(taskId) for model \(modelName), roleSplit: \(enableRoleSplit)")
         do {
             // Check cancellation
             try Task.checkCancellation()
             
             // Check settings for debug
-            // Accessing SettingsStore via dependency or pass it in. 
-            // Since LocalTaskManager is a singleton, it should probably read user defaults or be configured.
-            // For simplicity, we read UserDefaults directly or assume we can access SettingsStore.
-            // But SettingsStore is an ObservableObject.
-            // Let's rely on standard UserDefaults for these debug flags inside the Actor if needed,
-            // or pass them in arguments.
             let debugSaveAudio = UserDefaults.standard.bool(forKey: "debugSaveIntermediateAudio")
             let debugExportRaw = UserDefaults.standard.bool(forKey: "debugExportRawResults")
             let debugLogTime = UserDefaults.standard.bool(forKey: "debugLogModelTime")
@@ -153,7 +148,9 @@ actor LocalTaskManager {
             let startTime = Date()
             
             // 1. Preprocess Audio
+            print("[LocalTaskManager] Preprocessing audio: \(audioUrl.path)")
             let processedUrl = try await preprocessAudio(audioUrl)
+            print("[LocalTaskManager] Audio preprocessed to: \(processedUrl.path)")
             
             if debugSaveAudio {
                 let tempDir = FileManager.default.temporaryDirectory
@@ -164,6 +161,7 @@ actor LocalTaskManager {
             
             // 2. Load Model
             let loadStart = Date()
+            print("[LocalTaskManager] Loading model: \(modelName)")
             try await WhisperModelManager.shared.loadModel(modelName)
             if debugLogTime {
                 print("[Debug] Model load time: \(Date().timeIntervalSince(loadStart))s")
@@ -171,13 +169,17 @@ actor LocalTaskManager {
             
             // 3. Run Parallel Inference (ASR + Diarization)
             let inferenceStart = Date()
+            print("[LocalTaskManager] Starting inference for \(taskId)")
             let result = try await runParallelInference(audioPath: processedUrl.path, taskId: taskId, modelManager: WhisperModelManager.shared, debugExport: debugExportRaw, enableRoleSplit: enableRoleSplit)
+            print("[LocalTaskManager] Inference completed for \(taskId). Text length: \(result.text.count)")
+            
             if debugLogTime {
                 print("[Debug] Inference time: \(Date().timeIntervalSince(inferenceStart))s")
             }
             
             // 4. Format Output
             let output = formatOutput(result)
+            print("[LocalTaskManager] Task \(taskId) SUCCESS. Result keys: \(output.keys)")
             
             if debugLogTime {
                 print("[Debug] Total task time: \(Date().timeIntervalSince(startTime))s")
@@ -192,10 +194,10 @@ actor LocalTaskManager {
             
         } catch {
             if error is CancellationError {
-                print("Task \(taskId) cancelled")
+                print("[LocalTaskManager] Task \(taskId) CANCELLED")
                 updateTask(taskId, status: .cancelled)
             } else {
-                print("Task \(taskId) failed: \(error)")
+                print("[LocalTaskManager] Task \(taskId) FAILED: \(error)")
                 updateTask(taskId, status: .failed(error.localizedDescription))
             }
         }
@@ -291,12 +293,14 @@ actor LocalTaskManager {
                 var partialSegments: [TranscriptSegment] = []
                 let previousCallback = pipe.segmentDiscoveryCallback
                 pipe.segmentDiscoveryCallback = { segments in
+                    print("[LocalTaskManager] Segment callback: \(segments.count) segments")
                     let mapped = segments.map { TranscriptSegment(start: Double($0.start), end: Double($0.end), text: $0.text) }
                     partialSegments.append(contentsOf: mapped)
                     let fused = partialSegments.map { FusedSegment(start: $0.start, end: $0.end, text: $0.text, speaker: enableRoleSplit ? "Unknown" : "") }
                     let text = fused.map { $0.text }.joined(separator: " ")
                     let partial = FusedResult(text: text, segments: fused)
                     let payload = self.formatOutput(partial, isPartial: true)
+                    print("[LocalTaskManager] Sending partial update, text length: \(text.count)")
                     Task { await LocalTaskManager.shared.updatePartial(taskId, result: payload) }
                 }
                 defer { pipe.segmentDiscoveryCallback = previousCallback }
