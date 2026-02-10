@@ -146,13 +146,26 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
                 else if retryCount > 0 {
                     print("[WhisperModelManager] Suspected corruption or incomplete download. Cleaning up and retrying...")
                     
-                    // Delete the specific model repo directory to force fresh download
+                    // Identify if it's a metadata error which often needs deeper cleanup
+                    let errorString = "\(error)"
+                    let isMetadataError = errorString.contains("Invalid metadata") || errorString.contains("File metadata")
+                    
+                    // Delete the specific model repo directory
                     if FileManager.default.fileExists(atPath: repoPath.path) {
                         do {
                             try FileManager.default.removeItem(at: repoPath)
                             print("[WhisperModelManager] Deleted corrupted model directory: \(repoPath.path)")
                         } catch {
                             print("[WhisperModelManager] Failed to delete corrupted model directory: \(error)")
+                        }
+                    }
+                    
+                    // If it's a metadata error, also clean up the global .cache/huggingface if it exists in downloadBase
+                    if isMetadataError {
+                        let globalCachePath = modelStoragePath.appendingPathComponent(".cache/huggingface")
+                        if FileManager.default.fileExists(atPath: globalCachePath.path) {
+                            try? FileManager.default.removeItem(at: globalCachePath)
+                            print("[WhisperModelManager] Aggressively deleted global cache due to metadata error: \(globalCachePath.path)")
                         }
                     }
                     
