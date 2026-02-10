@@ -40,6 +40,10 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
     }
     
     func loadModel(_ name: String) async throws {
+        try await loadModel(name, retryCount: 1)
+    }
+
+    private func loadModel(_ name: String, retryCount: Int) async throws {
         let modelName: String
         if !name.contains("openai_whisper-") {
             modelName = "openai_whisper-\(name)"
@@ -102,22 +106,19 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
             
             config.downloadBase = modelStoragePath
             print("[WhisperModelManager] Final Download Base: \(modelStoragePath.path)")
-            print("[WhisperModelManager] Model Repo: \(config.modelRepo ?? "argmaxinc/whisperkit-coreml")")
+            let repoName = config.modelRepo ?? "argmaxinc/whisperkit-coreml"
+            print("[WhisperModelManager] Model Repo: \(repoName)")
             
             // Try to initialize WhisperKit
             let newPipe: WhisperKit
             do {
                 newPipe = try await WhisperKit(config)
             } catch {
-                // If initialization fails (e.g. timeout) and we suspect we have the model locally, try offline mode
-                print("[WhisperModelManager] Initial load failed: \(error). Checking for local cache...")
+                print("[WhisperModelManager] Initial load failed: \(error)")
                 
-                // Check if we can find the model in the cache
-                // Structure: <base>/models--<org>--<repo>/snapshots/<hash>
-                let repoName = config.modelRepo ?? "argmaxinc/whisperkit-coreml"
+                // Helper to check for local model existence
                 let repoDirName = "models--" + repoName.replacingOccurrences(of: "/", with: "--")
                 let repoPath = modelStoragePath.appendingPathComponent(repoDirName)
-                
                 let snapshotsPath = repoPath.appendingPathComponent("snapshots")
                 
                 var hasLocalModel = false
@@ -127,19 +128,37 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
                     hasLocalModel = true
                 }
                 
+                // Strategy 1: Offline Fallback (if model exists)
                 if hasLocalModel {
                     print("[WhisperModelManager] Local model found. Retrying in OFFLINE mode...")
                     setenv("HF_HUB_OFFLINE", "1", 1)
-                    // Re-create config because WhisperKit might have modified it or we want clean state
+                    
                     let offlineConfig = WhisperKitConfig(model: modelName)
                     offlineConfig.verbose = true
                     offlineConfig.logLevel = .debug
                     offlineConfig.downloadBase = modelStoragePath
                     
+                    defer { unsetenv("HF_HUB_OFFLINE") }
                     newPipe = try await WhisperKit(offlineConfig)
                     
-                    // Reset OFFLINE mode for future requests
-                    unsetenv("HF_HUB_OFFLINE")
+                } 
+                // Strategy 2: Cleanup and Retry (if corruption suspected and retries available)
+                else if retryCount > 0 {
+                    print("[WhisperModelManager] Suspected corruption or incomplete download. Cleaning up and retrying...")
+                    
+                    // Delete the specific model repo directory to force fresh download
+                    if FileManager.default.fileExists(atPath: repoPath.path) {
+                        do {
+                            try FileManager.default.removeItem(at: repoPath)
+                            print("[WhisperModelManager] Deleted corrupted model directory: \(repoPath.path)")
+                        } catch {
+                            print("[WhisperModelManager] Failed to delete corrupted model directory: \(error)")
+                        }
+                    }
+                    
+                    // Recursive retry
+                    try await loadModel(name, retryCount: retryCount - 1)
+                    return
                 } else {
                     throw error
                 }
