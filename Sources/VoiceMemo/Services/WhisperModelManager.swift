@@ -40,7 +40,8 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
     }
     
     func loadModel(_ name: String) async throws {
-        try await loadModel(name, retryCount: 1)
+        // Increase initial retry count to handle timeouts with resumption
+        try await loadModel(name, retryCount: 5)
     }
 
     private func loadModel(_ name: String, retryCount: Int) async throws {
@@ -80,7 +81,7 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
         }
         
         do {
-            print("[WhisperModelManager] Loading model: \(modelName)")
+            print("[WhisperModelManager] Loading model: \(modelName) (Remaining retries: \(retryCount))")
             
             let useMirror = UserDefaults.standard.bool(forKey: "useHFMirror")
             print("[WhisperModelManager] Configuration - Model: \(modelName), UseMirror: \(useMirror)")
@@ -114,7 +115,11 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
             do {
                 newPipe = try await WhisperKit(config)
             } catch {
-                print("[WhisperModelManager] Initial load failed: \(error)")
+                print("[WhisperModelManager] Load attempt failed: \(error)")
+                
+                let errorString = "\(error)"
+                let isTimeout = errorString.contains("timed out")
+                let isMetadataError = errorString.contains("Invalid metadata") || errorString.contains("File metadata")
                 
                 // Helper to check for local model existence
                 let repoDirName = "models--" + repoName.replacingOccurrences(of: "/", with: "--")
@@ -128,8 +133,8 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
                     hasLocalModel = true
                 }
                 
-                // Strategy 1: Offline Fallback (if model exists)
-                if hasLocalModel {
+                // Strategy 1: Offline Fallback (if model exists locally, even if network failed)
+                if hasLocalModel && (isTimeout || isMetadataError) {
                     print("[WhisperModelManager] Local model found. Retrying in OFFLINE mode...")
                     setenv("HF_HUB_OFFLINE", "1", 1)
                     
@@ -140,32 +145,29 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
                     
                     defer { unsetenv("HF_HUB_OFFLINE") }
                     newPipe = try await WhisperKit(offlineConfig)
-                    
                 } 
-                // Strategy 2: Cleanup and Retry (if corruption suspected and retries available)
+                // Strategy 2: Cleanup and Retry (for corruption or persistent errors)
                 else if retryCount > 0 {
-                    print("[WhisperModelManager] Suspected corruption or incomplete download. Cleaning up and retrying...")
-                    
-                    // Identify if it's a metadata error which often needs deeper cleanup
-                    let errorString = "\(error)"
-                    let isMetadataError = errorString.contains("Invalid metadata") || errorString.contains("File metadata")
-                    
-                    // Delete the specific model repo directory
-                    if FileManager.default.fileExists(atPath: repoPath.path) {
-                        do {
-                            try FileManager.default.removeItem(at: repoPath)
+                    if isTimeout {
+                        print("[WhisperModelManager] Timeout detected. Retrying WITHOUT cleanup to allow resume...")
+                        // Wait a bit before retrying to let network stabilize
+                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+                    } else {
+                        print("[WhisperModelManager] Suspected corruption (Metadata/Move error). Cleaning up and retrying...")
+                        
+                        // Delete the specific model repo directory
+                        if FileManager.default.fileExists(atPath: repoPath.path) {
+                            try? FileManager.default.removeItem(at: repoPath)
                             print("[WhisperModelManager] Deleted corrupted model directory: \(repoPath.path)")
-                        } catch {
-                            print("[WhisperModelManager] Failed to delete corrupted model directory: \(error)")
                         }
-                    }
-                    
-                    // If it's a metadata error, also clean up the global .cache/huggingface if it exists in downloadBase
-                    if isMetadataError {
-                        let globalCachePath = modelStoragePath.appendingPathComponent(".cache/huggingface")
-                        if FileManager.default.fileExists(atPath: globalCachePath.path) {
-                            try? FileManager.default.removeItem(at: globalCachePath)
-                            print("[WhisperModelManager] Aggressively deleted global cache due to metadata error: \(globalCachePath.path)")
+                        
+                        // If it's a metadata error, also clean up the global .cache/huggingface
+                        if isMetadataError {
+                            let globalCachePath = modelStoragePath.appendingPathComponent(".cache/huggingface")
+                            if FileManager.default.fileExists(atPath: globalCachePath.path) {
+                                try? FileManager.default.removeItem(at: globalCachePath)
+                                print("[WhisperModelManager] Aggressively deleted global cache: \(globalCachePath.path)")
+                            }
                         }
                     }
                     
@@ -186,7 +188,7 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
             }
             print("[WhisperModelManager] Model loaded successfully")
         } catch {
-            print("[WhisperModelManager] Failed to load model: \(error)")
+            print("[WhisperModelManager] Final failure to load model: \(error)")
             await MainActor.run {
                 self.loadingError = error.localizedDescription
                 self.isModelLoading = false
