@@ -179,6 +179,11 @@ actor LocalTaskManager {
             
             // 4. Format Output
             let output = formatOutput(result)
+            
+            if result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("[LocalTaskManager] Warning: Transcription produced empty text")
+            }
+            
             print("[LocalTaskManager] Task \(taskId) SUCCESS. Result keys: \(output.keys)")
             
             if debugLogTime {
@@ -193,12 +198,15 @@ actor LocalTaskManager {
             }
             
         } catch {
+            let errorMessage: String
             if error is CancellationError {
+                errorMessage = "Task cancelled"
                 print("[LocalTaskManager] Task \(taskId) CANCELLED")
                 updateTask(taskId, status: .cancelled)
             } else {
-                print("[LocalTaskManager] Task \(taskId) FAILED: \(error)")
-                updateTask(taskId, status: .failed(error.localizedDescription))
+                errorMessage = "\(error)"
+                print("[LocalTaskManager] Task \(taskId) FAILED: \(errorMessage)")
+                updateTask(taskId, status: .failed(errorMessage))
             }
         }
     }
@@ -277,9 +285,13 @@ actor LocalTaskManager {
     
     private func validateAudioFile(_ audioFile: AVAudioFile) throws {
         guard audioFile.length > 0 else {
-            throw InferenceError.processingFailed // Empty file
+            throw InferenceError.emptyAudio
         }
-        // Additional checks...
+        // Whisper usually needs at least some audio
+        let duration = Double(audioFile.length) / audioFile.fileFormat.sampleRate
+        if duration < 0.1 {
+            throw InferenceError.emptyAudio
+        }
     }
     
     private func runParallelInference(audioPath: String, taskId: String, modelManager: WhisperModelManager, debugExport: Bool, enableRoleSplit: Bool) async throws -> FusedResult {
@@ -290,13 +302,12 @@ actor LocalTaskManager {
                     throw InferenceError.modelNotLoaded
                 }
                 
-                var partialSegments: [TranscriptSegment] = []
                 let previousCallback = pipe.segmentDiscoveryCallback
                 pipe.segmentDiscoveryCallback = { segments in
                     print("[LocalTaskManager] Segment callback: \(segments.count) segments")
                     let mapped = segments.map { TranscriptSegment(start: Double($0.start), end: Double($0.end), text: $0.text) }
-                    partialSegments.append(contentsOf: mapped)
-                    let fused = partialSegments.map { FusedSegment(start: $0.start, end: $0.end, text: $0.text, speaker: enableRoleSplit ? "Unknown" : "") }
+                    // segments in WhisperKit callback are usually the full set of segments discovered so far
+                    let fused = mapped.map { FusedSegment(start: $0.start, end: $0.end, text: $0.text, speaker: enableRoleSplit ? "Unknown" : "") }
                     let text = fused.map { $0.text }.joined(separator: " ")
                     let partial = FusedResult(text: text, segments: fused)
                     let payload = self.formatOutput(partial, isPartial: true)
@@ -307,6 +318,10 @@ actor LocalTaskManager {
                 
                 let results = try await pipe.transcribe(audioPath: audioPath)
                 let wSegments = results.flatMap { $0.segments }
+                
+                if wSegments.isEmpty {
+                    print("[LocalTaskManager] Transcription returned empty segments")
+                }
                 
                 let transcriptSegments = wSegments.map { s in
                     TranscriptSegment(start: Double(s.start), end: Double(s.end), text: s.text)

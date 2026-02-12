@@ -59,6 +59,14 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.voicememo.modelmanager", attributes: .concurrent)
     
     private init() {
+        // Set up environment variables for mirror support early
+        let useMirror = UserDefaults.standard.bool(forKey: "useHFMirror")
+        if useMirror {
+            print("[WhisperModelManager] Initializing with HF Mirror: https://hf-mirror.com")
+            setenv("HF_ENDPOINT", "https://hf-mirror.com", 1)
+            setenv("HUB_ENDPOINT", "https://hf-mirror.com", 1)
+        }
+
         // Start cleanup timer
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.cleanupExpiredModels()
@@ -91,8 +99,14 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
     }
     
     private func getPaths() -> (storage: URL, repo: URL, snapshots: URL) {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let modelStoragePath = appSupport.appendingPathComponent("VoiceMemo/Models")
+        // Check if environment variable is set to override the download base path
+        let modelStoragePath: URL
+        if let customPath = ProcessInfo.processInfo.environment["WHISPERKIT_DOWNLOAD_BASE"] {
+            modelStoragePath = URL(fileURLWithPath: customPath)
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            modelStoragePath = appSupport.appendingPathComponent("VoiceMemo/Models")
+        }
         
         let repoName = "argmaxinc/whisperkit-coreml"
         let repoDirName = "models--" + repoName.replacingOccurrences(of: "/", with: "--")
@@ -271,9 +285,11 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
             if useMirror {
                 print("[WhisperModelManager] Using HF Mirror: https://hf-mirror.com")
                 setenv("HF_ENDPOINT", "https://hf-mirror.com", 1)
+                setenv("HUB_ENDPOINT", "https://hf-mirror.com", 1)
             } else {
                 print("[WhisperModelManager] Using Default Source (Hugging Face)")
                 unsetenv("HF_ENDPOINT")
+                unsetenv("HUB_ENDPOINT")
             }
             
             // Use helper for paths
@@ -285,84 +301,119 @@ class WhisperModelManager: ObservableObject, @unchecked Sendable {
             let repoName = config.modelRepo ?? "argmaxinc/whisperkit-coreml"
             print("[WhisperModelManager] Model Repo: \(repoName)")
             
-            // Try to initialize WhisperKit
-            let newPipe: WhisperKit
-            do {
-                newPipe = try await WhisperKit(config)
-            } catch {
-                print("[WhisperModelManager] Load attempt failed: \(error)")
+            var newPipe: WhisperKit?
+            
+            // Strategy 0: If already downloaded, try offline mode FIRST to avoid network/TLS issues
+            let alreadyDownloaded = isModelDownloaded(name)
+            if alreadyDownloaded {
+                print("[WhisperModelManager] Model \(modelName) appears to be downloaded. Trying offline load first...")
+                setenv("HF_HUB_OFFLINE", "1", 1)
+                let offlineConfig = WhisperKitConfig(model: modelName)
+                offlineConfig.downloadBase = paths.storage
                 
-                let errorString = "\(error)"
-                let isTimeout = errorString.contains("timed out")
-                let isMetadataError = errorString.contains("Invalid metadata") || errorString.contains("File metadata")
-                
-                // Helper to check for local model existence
-                // Use paths from helper
-                let repoPath = paths.repo
-                let snapshotsPath = paths.snapshots
-                
-                var hasLocalModel = false
-                if let snapshotContents = try? FileManager.default.contentsOfDirectory(at: snapshotsPath, includingPropertiesForKeys: nil),
-                   !snapshotContents.isEmpty {
-                    print("[WhisperModelManager] Found local snapshots: \(snapshotContents.map { $0.lastPathComponent })")
-                    hasLocalModel = true
-                }
-                
-                // Strategy 1: Offline Fallback (if model exists locally, even if network failed)
-                if hasLocalModel && (isTimeout || isMetadataError) {
-                    print("[WhisperModelManager] Local model found. Retrying in OFFLINE mode...")
-                    setenv("HF_HUB_OFFLINE", "1", 1)
-                    
-                    let offlineConfig = WhisperKitConfig(model: modelName)
-                    offlineConfig.verbose = true
-                    offlineConfig.logLevel = .debug
-                    offlineConfig.downloadBase = paths.storage
-                    
-                    defer { unsetenv("HF_HUB_OFFLINE") }
-                    newPipe = try await WhisperKit(offlineConfig)
-                } 
-                // Strategy 2: Cleanup and Retry (for corruption or persistent errors)
-                else if retryCount > 0 {
-                    if isTimeout {
-                        print("[WhisperModelManager] Timeout detected. Retrying WITHOUT cleanup to allow resume...")
-                        // Wait a bit before retrying to let network stabilize
-                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
-                    } else {
-                        print("[WhisperModelManager] Suspected corruption (Metadata/Move error). Cleaning up and retrying...")
-                        
-                        // Delete the specific model repo directory
-                        if FileManager.default.fileExists(atPath: repoPath.path) {
-                            try? FileManager.default.removeItem(at: repoPath)
-                            print("[WhisperModelManager] Deleted corrupted model directory: \(repoPath.path)")
-                        }
-                        
-                        // If it's a metadata error, also clean up the global .cache/huggingface
-                        if isMetadataError {
-                            let globalCachePath = paths.storage.appendingPathComponent(".cache/huggingface")
-                            if FileManager.default.fileExists(atPath: globalCachePath.path) {
-                                try? FileManager.default.removeItem(at: globalCachePath)
-                                print("[WhisperModelManager] Aggressively deleted global cache: \(globalCachePath.path)")
-                            }
-                        }
-                    }
-                    
-                    // Recursive retry
-                    try await loadModel(name, retryCount: retryCount - 1)
-                    return
+                if let pipe = try? await WhisperKit(offlineConfig) {
+                    print("[WhisperModelManager] Offline load successful!")
+                    unsetenv("HF_HUB_OFFLINE")
+                    newPipe = pipe
+                    // Skip to success
                 } else {
-                    throw error
+                    print("[WhisperModelManager] Offline load failed, falling back to online check...")
+                    unsetenv("HF_HUB_OFFLINE")
+                    // Proceed to normal online initialization
+                    newPipe = try await WhisperKit(config)
                 }
+            } else {
+                // Try normal initialization (which may trigger download)
+                newPipe = try await WhisperKit(config)
             }
             
             queue.async(flags: .barrier) {
-                self.models[modelName] = .loaded(pipe: newPipe, inUseCount: 1)
+                self.models[modelName] = .loaded(pipe: newPipe!, inUseCount: 1)
             }
             
             await MainActor.run {
                 self.isModelLoading = false
             }
             print("[WhisperModelManager] Model loaded successfully")
+            
         } catch {
+            print("[WhisperModelManager] Load attempt failed: \(error)")
+            
+            let errorString = "\(error)"
+            let isTimeout = errorString.contains("timed out")
+            let isMetadataError = errorString.contains("Invalid metadata") || errorString.contains("File metadata")
+            let isTLSError = errorString.contains("TLS") || errorString.contains("安全连接失败") || errorString.contains("security")
+            
+            // Helper to check for local model existence
+            // Use paths from helper
+            let paths = getPaths()
+            let repoPath = paths.repo
+            let snapshotsPath = paths.snapshots
+            
+            var hasLocalModel = false
+            if let snapshotContents = try? FileManager.default.contentsOfDirectory(at: snapshotsPath, includingPropertiesForKeys: nil),
+               !snapshotContents.isEmpty {
+                print("[WhisperModelManager] Found local snapshots: \(snapshotContents.map { $0.lastPathComponent })")
+                hasLocalModel = true
+            }
+            
+            // Strategy 1: Offline Fallback (if model exists locally, even if network failed)
+            if hasLocalModel && (isTimeout || isMetadataError || isTLSError) {
+                print("[WhisperModelManager] Local model found. Retrying in OFFLINE mode due to: \(isTLSError ? "TLS Error" : "Network Error")")
+                setenv("HF_HUB_OFFLINE", "1", 1)
+                
+                let offlineConfig = WhisperKitConfig(model: modelName)
+                offlineConfig.verbose = true
+                offlineConfig.logLevel = .debug
+                offlineConfig.downloadBase = paths.storage
+                
+                defer { unsetenv("HF_HUB_OFFLINE") }
+                do {
+                    let newPipe = try await WhisperKit(offlineConfig)
+                    
+                    queue.async(flags: .barrier) {
+                        self.models[modelName] = .loaded(pipe: newPipe, inUseCount: 1)
+                    }
+                    
+                    await MainActor.run {
+                        self.isModelLoading = false
+                    }
+                    print("[WhisperModelManager] Model loaded successfully via offline fallback")
+                    return
+                } catch {
+                    print("[WhisperModelManager] Offline fallback also failed: \(error)")
+                }
+            } 
+            // Strategy 2: Cleanup and Retry (for corruption or persistent errors)
+            else if retryCount > 0 {
+                if isTimeout {
+                    print("[WhisperModelManager] Timeout detected. Retrying WITHOUT cleanup to allow resume...")
+                    // Wait a bit before retrying to let network stabilize
+                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+                } else {
+                    print("[WhisperModelManager] Suspected corruption (Metadata/Move error). Cleaning up and retrying...")
+                    
+                    // Delete the specific model repo directory
+                    if FileManager.default.fileExists(atPath: repoPath.path) {
+                        try? FileManager.default.removeItem(at: repoPath)
+                        print("[WhisperModelManager] Deleted corrupted model directory: \(repoPath.path)")
+                    }
+                    
+                    // If it's a metadata error, also clean up the global .cache/huggingface
+                    if isMetadataError {
+                        let globalCachePath = paths.storage.appendingPathComponent(".cache/huggingface")
+                        if FileManager.default.fileExists(atPath: globalCachePath.path) {
+                            try? FileManager.default.removeItem(at: globalCachePath)
+                            print("[WhisperModelManager] Aggressively deleted global cache: \(globalCachePath.path)")
+                        }
+                    }
+                }
+                
+                // Recursive retry
+                try await loadModel(name, retryCount: retryCount - 1)
+                return
+            }
+            
             print("[WhisperModelManager] Final failure to load model: \(error)")
             await MainActor.run {
                 self.loadingError = error.localizedDescription
