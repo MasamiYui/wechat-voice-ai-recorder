@@ -105,8 +105,16 @@ class SettingsStore: ObservableObject {
     @Published var savePathBookmark: Data? {
         didSet { UserDefaults.standard.set(savePathBookmark, forKey: "savePathBookmark") }
     }
+
+    // Security Config
+    @Published var useKeychain: Bool {
+        didSet { 
+            UserDefaults.standard.set(useKeychain, forKey: "useKeychain") 
+            checkSecrets()
+        }
+    }
     
-    // Secrets (In-memory placeholders, real values in Keychain)
+    // Secrets (stored in Keychain or UserDefaults based on useKeychain setting)
     @Published var hasTingwuAccessKeyId: Bool = false
     @Published var hasTingwuAccessKeySecret: Bool = false
     @Published var hasOSSAccessKeyId: Bool = false
@@ -146,6 +154,7 @@ class SettingsStore: ObservableObject {
         self.speakerCount = (spkCount == 0) ? 2 : spkCount
         self.enableVerboseLogging = UserDefaults.standard.object(forKey: "enableVerboseLogging") as? Bool ?? false
         self.savePathBookmark = UserDefaults.standard.data(forKey: "savePathBookmark")
+        self.useKeychain = UserDefaults.standard.object(forKey: "useKeychain") as? Bool ?? true
         
         migrateLegacySecrets()
         checkSecrets()
@@ -153,7 +162,8 @@ class SettingsStore: ObservableObject {
     }
     
     private func migrateLegacySecrets() {
-        // Migrate generic 'aliyun_ak_id' to specific 'tingwu_ak_id' and 'oss_ak_id' if they don't exist
+        guard useKeychain else { return }
+        
         if let legacyId = KeychainHelper.shared.readString(account: "aliyun_ak_id") {
             if KeychainHelper.shared.readString(account: "tingwu_ak_id") == nil {
                 KeychainHelper.shared.save(legacyId, account: "tingwu_ak_id")
@@ -173,84 +183,110 @@ class SettingsStore: ObservableObject {
         }
     }
     
+    // MARK: - Secret Management Helpers
+    
+    private func saveSecret(_ value: String, key: String) {
+        if useKeychain {
+            KeychainHelper.shared.save(value, account: key)
+        } else {
+            UserDefaults.standard.set(value, forKey: key)
+        }
+    }
+    
+    private func getSecret(key: String) -> String? {
+        if useKeychain {
+            return KeychainHelper.shared.readString(account: key)
+        } else {
+            return UserDefaults.standard.string(forKey: key)
+        }
+    }
+    
+    private func deleteSecret(key: String) {
+        if useKeychain {
+            KeychainHelper.shared.delete(account: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
     func checkSecrets() {
-        hasTingwuAccessKeyId = KeychainHelper.shared.readString(account: "tingwu_ak_id") != nil
-        hasTingwuAccessKeySecret = KeychainHelper.shared.readString(account: "tingwu_ak_secret") != nil
-        hasOSSAccessKeyId = KeychainHelper.shared.readString(account: "oss_ak_id") != nil
-        hasOSSAccessKeySecret = KeychainHelper.shared.readString(account: "oss_ak_secret") != nil
+        hasTingwuAccessKeyId = getSecret(key: "tingwu_ak_id") != nil
+        hasTingwuAccessKeySecret = getSecret(key: "tingwu_ak_secret") != nil
+        hasOSSAccessKeyId = getSecret(key: "oss_ak_id") != nil
+        hasOSSAccessKeySecret = getSecret(key: "oss_ak_secret") != nil
         
-        hasMySQLPassword = KeychainHelper.shared.readString(account: "mysql_password") != nil
-        hasVolcAccessToken = KeychainHelper.shared.readString(account: "volc_access_token") != nil
+        hasMySQLPassword = getSecret(key: "mysql_password") != nil
+        hasVolcAccessToken = getSecret(key: "volc_access_token") != nil
     }
     
     func saveMySQLPassword(_ value: String) {
-        KeychainHelper.shared.save(value, account: "mysql_password")
+        saveSecret(value, key: "mysql_password")
         checkSecrets()
     }
     
     func getMySQLPassword() -> String? {
-        return KeychainHelper.shared.readString(account: "mysql_password")
+        return getSecret(key: "mysql_password")
     }
     
     func saveOSSAccessKeyId(_ value: String) {
-        KeychainHelper.shared.save(value, account: "oss_ak_id")
+        saveSecret(value, key: "oss_ak_id")
         checkSecrets()
     }
     
     func saveOSSAccessKeySecret(_ value: String) {
-        KeychainHelper.shared.save(value, account: "oss_ak_secret")
+        saveSecret(value, key: "oss_ak_secret")
         checkSecrets()
     }
     
     func getOSSAccessKeyId() -> String? {
-        return KeychainHelper.shared.readString(account: "oss_ak_id")
+        return getSecret(key: "oss_ak_id")
     }
     
     func getOSSAccessKeySecret() -> String? {
-        return KeychainHelper.shared.readString(account: "oss_ak_secret")
+        return getSecret(key: "oss_ak_secret")
     }
     
     func saveTingwuAccessKeyId(_ value: String) {
-        KeychainHelper.shared.save(value, account: "tingwu_ak_id")
+        saveSecret(value, key: "tingwu_ak_id")
         checkSecrets()
     }
     
     func saveTingwuAccessKeySecret(_ value: String) {
-        KeychainHelper.shared.save(value, account: "tingwu_ak_secret")
+        saveSecret(value, key: "tingwu_ak_secret")
         checkSecrets()
     }
     
     func getTingwuAccessKeyId() -> String? {
-        return KeychainHelper.shared.readString(account: "tingwu_ak_id")
+        return getSecret(key: "tingwu_ak_id")
     }
     
     func getTingwuAccessKeySecret() -> String? {
-        return KeychainHelper.shared.readString(account: "tingwu_ak_secret")
+        return getSecret(key: "tingwu_ak_secret")
     }
     
     func saveVolcAccessToken(_ value: String) {
-        KeychainHelper.shared.save(value, account: "volc_access_token")
+        saveSecret(value, key: "volc_access_token")
         checkSecrets()
     }
     
     func getVolcAccessToken() -> String? {
-        return KeychainHelper.shared.readString(account: "volc_access_token")
+        return getSecret(key: "volc_access_token")
     }
     
     func clearTingwuSecrets() {
-        KeychainHelper.shared.delete(account: "tingwu_ak_id")
-        KeychainHelper.shared.delete(account: "tingwu_ak_secret")
+        deleteSecret(key: "tingwu_ak_id")
+        deleteSecret(key: "tingwu_ak_secret")
         checkSecrets()
     }
     
     func clearOSSSecrets() {
-        KeychainHelper.shared.delete(account: "oss_ak_id")
-        KeychainHelper.shared.delete(account: "oss_ak_secret")
+        deleteSecret(key: "oss_ak_id")
+        deleteSecret(key: "oss_ak_secret")
         checkSecrets()
     }
     
     func clearVolcSecrets() {
-        KeychainHelper.shared.delete(account: "volc_access_token")
+        deleteSecret(key: "volc_access_token")
         checkSecrets()
     }
     

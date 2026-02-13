@@ -92,11 +92,12 @@
 - 功能开关：summary/key points/action items/role split
 - 日志：verbose 开关
 
-## 密钥（Keychain）
+## 密钥（Keychain 或 UserDefaults）
 
-`KeychainHelper` 使用 service：
+用户可通过 `useKeychain` 设置项控制密钥存储位置：
 
-- `cn.mistbit.voicememo.secrets`
+- **Keychain（默认）**：使用 `KeychainHelper` 安全存储，service 为 `cn.mistbit.voicememo.secrets`
+- **UserDefaults**：直接存储在 plist 文件中，无需授权但安全性较低
 
 accounts：
 
@@ -111,6 +112,8 @@ accounts：
 
 - `hasAccessKeyId` / `hasAccessKeySecret`
 - save/read/clear 方法
+
+> ⚠️ 注意：切换存储位置后，之前存储的密钥不会自动迁移，用户需要重新输入。
 
 ## 日志
 
