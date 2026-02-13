@@ -31,16 +31,23 @@
 - `storageType`：`local` / `mysql`
 - `appTheme`：`system` / `light` / `dark`
 
-### 密钥（Keychain）
+### 密钥（Keychain 或 UserDefaults）
 
-密钥存储在 Keychain，不存放在 UserDefaults，详见：`doc/04-storage-and-settings.zh-CN.md`。
+密钥存储位置可由用户通过 `useKeychain` 设置项控制：
+
+- **Keychain（默认）**：更安全，但每次访问可能需要系统授权
+- **UserDefaults**：无需授权，但以明文形式存储在 plist 文件中
 
 accounts：
 
-- `aliyun_ak_id`
-- `aliyun_ak_secret`
+- `tingwu_ak_id`
+- `tingwu_ak_secret`
+- `oss_ak_id`
+- `oss_ak_secret`
 - `volc_access_token`
 - `mysql_password`
+
+> ⚠️ 安全提示：使用 UserDefaults 存储密钥时，任何能访问 `~/Library/Preferences/` 目录的用户都能看到明文密钥。建议仅在开发/测试环境或个人设备上禁用 Keychain。
 
 ## 权限与 Entitlements
 
@@ -99,8 +106,9 @@ accounts：
 
 ## 审计检查清单
 
-- 密钥只存在 Keychain：UserDefaults、日志、仓库均不应出现明文密钥。
+- 密钥存储位置：默认使用 Keychain，用户可选择 UserDefaults（明文存储）。
 - 开启 verbose 日志后，确认日志不包含凭证、签名串、Authorization header。
 - 确认音频与派生文本只写入文档说明的位置与存储后端。
 - 确认权限申请与 Entitlements 与实际功能一致（无多余权限项）。
 - 确认主题变更观察者只注册一次，并在退出时移除。
+- 若禁用 Keychain，需确认用户了解安全风险（密钥明文存储）。

@@ -114,7 +114,7 @@ class SettingsStore: ObservableObject {
         }
     }
     
-    // Secrets (In-memory placeholders, real values in Keychain)
+    // Secrets (stored in Keychain or UserDefaults based on useKeychain setting)
     @Published var hasTingwuAccessKeyId: Bool = false
     @Published var hasTingwuAccessKeySecret: Bool = false
     @Published var hasOSSAccessKeyId: Bool = false
@@ -162,7 +162,8 @@ class SettingsStore: ObservableObject {
     }
     
     private func migrateLegacySecrets() {
-        // Migrate generic 'aliyun_ak_id' to specific 'tingwu_ak_id' and 'oss_ak_id' if they don't exist
+        guard useKeychain else { return }
+        
         if let legacyId = KeychainHelper.shared.readString(account: "aliyun_ak_id") {
             if KeychainHelper.shared.readString(account: "tingwu_ak_id") == nil {
                 KeychainHelper.shared.save(legacyId, account: "tingwu_ak_id")
