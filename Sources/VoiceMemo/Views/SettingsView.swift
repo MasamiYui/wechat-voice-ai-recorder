@@ -210,6 +210,18 @@ struct SettingsView: View {
                     Spacer()
                 }
             }
+            
+            StyledGroupBox("Security") {
+                FormRow(label: "Storage") {
+                    Toggle("Use Keychain", isOn: $settings.useKeychain)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                    Text("Securely store credentials in Keychain. If disabled, credentials are stored in plain text.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 8)
+                }
+            }
 
             StyledGroupBox("Appearance") {
                 FormRow(label: "Theme") {
